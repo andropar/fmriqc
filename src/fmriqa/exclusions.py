@@ -8,7 +8,7 @@ import json
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any, Callable
 
 import numpy as np
 
@@ -21,6 +21,204 @@ class ExclusionStringency(Enum):
     LIBERAL = "liberal"      # Exclude only clearly bad runs
     MODERATE = "moderate"    # Balance between inclusion and quality
     CONSERVATIVE = "conservative"  # Prioritize quality over retention
+
+
+@dataclass
+class ExclusionCriterion:
+    """Single exclusion criterion with threshold and reason.
+
+    Attributes
+    ----------
+    name : str
+        Internal name for the criterion
+    metric_key : str
+        Key in the metrics dictionary
+    threshold : float
+        Threshold value
+    comparison : str
+        Comparison operator: 'gt' (>), 'lt' (<), 'eq' (==)
+    reason_template : str
+        Template string for exclusion reason, with {value} and {threshold} placeholders
+    """
+    name: str
+    metric_key: str
+    threshold: float
+    comparison: str
+    reason_template: str
+
+    def check(self, metrics: Dict[str, float]) -> Optional[str]:
+        """Check if criterion is violated, return reason if so.
+
+        Parameters
+        ----------
+        metrics : dict
+            Dictionary of metric names to values
+
+        Returns
+        -------
+        str or None
+            Exclusion reason if criterion violated, None otherwise
+        """
+        if self.metric_key not in metrics:
+            return None
+
+        value = metrics[self.metric_key]
+
+        if self.comparison == 'gt' and value > self.threshold:
+            return self.reason_template.format(value=value, threshold=self.threshold)
+        elif self.comparison == 'lt' and value < self.threshold:
+            return self.reason_template.format(value=value, threshold=self.threshold)
+        elif self.comparison == 'eq' and value == self.threshold:
+            return self.reason_template.format(value=value, threshold=self.threshold)
+
+        return None
+
+
+class ExclusionEvaluator:
+    """Evaluate run exclusion based on multiple criteria.
+
+    Parameters
+    ----------
+    criteria : ExclusionCriteria
+        Criteria object with threshold values
+    """
+
+    def __init__(self, criteria: 'ExclusionCriteria'):
+        self.criteria_obj = criteria
+        self.criteria_list = self._build_criteria_list()
+
+    def _build_criteria_list(self) -> List[ExclusionCriterion]:
+        """Build list of ExclusionCriterion objects from ExclusionCriteria.
+
+        Returns
+        -------
+        list of ExclusionCriterion
+            List of criteria to evaluate (only enabled ones)
+        """
+        criteria_list = []
+
+        # FD median
+        if self.criteria_obj.fd_median_max is not None:
+            criteria_list.append(ExclusionCriterion(
+                name='fd_median',
+                metric_key='fd_median',
+                threshold=self.criteria_obj.fd_median_max,
+                comparison='gt',
+                reason_template='Median FD ({value:.3f}mm) exceeds threshold ({threshold}mm)'
+            ))
+
+        # FD percent
+        if self.criteria_obj.fd_percent_max is not None:
+            criteria_list.append(ExclusionCriterion(
+                name='fd_percent',
+                metric_key='fd_percent_above',
+                threshold=self.criteria_obj.fd_percent_max,
+                comparison='gt',
+                reason_template='High-motion volumes ({value:.1f}%) exceed threshold ({threshold}%)'
+            ))
+
+        # tSNR minimum
+        if self.criteria_obj.tsnr_min is not None:
+            criteria_list.append(ExclusionCriterion(
+                name='tsnr_min',
+                metric_key='tsnr_median',
+                threshold=self.criteria_obj.tsnr_min,
+                comparison='lt',
+                reason_template='tSNR ({value:.1f}) below minimum threshold ({threshold})'
+            ))
+
+        # DVARS percent
+        if self.criteria_obj.dvars_percent_max is not None:
+            criteria_list.append(ExclusionCriterion(
+                name='dvars_percent',
+                metric_key='dvars_percent_above',
+                threshold=self.criteria_obj.dvars_percent_max,
+                comparison='gt',
+                reason_template='High-DVARS volumes ({value:.1f}%) exceed threshold ({threshold}%)'
+            ))
+
+        # Outlier percent
+        if self.criteria_obj.outlier_percent_max is not None:
+            criteria_list.append(ExclusionCriterion(
+                name='outlier_percent',
+                metric_key='outlier_percent_above',
+                threshold=self.criteria_obj.outlier_percent_max,
+                comparison='gt',
+                reason_template='Outlier volumes ({value:.1f}%) exceed threshold ({threshold}%)'
+            ))
+
+        # Coverage
+        if self.criteria_obj.coverage_min is not None:
+            criteria_list.append(ExclusionCriterion(
+                name='coverage',
+                metric_key='coverage',
+                threshold=self.criteria_obj.coverage_min,
+                comparison='lt',
+                reason_template='Brain coverage ({value:.1%}) below threshold ({threshold:.1%})'
+            ))
+
+        return criteria_list
+
+    def evaluate(
+        self,
+        result: RunResult,
+        tsnr_values: Optional[List[float]] = None,
+        mahalanobis_distance: Optional[float] = None,
+    ) -> Tuple[List["ExclusionReason"], bool]:
+        """Evaluate all criteria and return exclusion reasons.
+
+        Parameters
+        ----------
+        result : RunResult
+            Run result to evaluate
+        tsnr_values : list, optional
+            All tSNR values in study (for percentile calculation)
+        mahalanobis_distance : float, optional
+            Mahalanobis distance for this run
+
+        Returns
+        -------
+        tuple[list of ExclusionReason, bool]
+            (reasons, excluded) - list of reasons and whether to exclude
+        """
+        reasons = []
+        metrics = result.metrics
+
+        # Check all standard criteria
+        for criterion in self.criteria_list:
+            reason_str = criterion.check(metrics)
+            if reason_str:
+                reasons.append(ExclusionReason(
+                    criterion=criterion.name,
+                    value=metrics[criterion.metric_key],
+                    threshold=criterion.threshold,
+                    description=reason_str,
+                ))
+
+        # Handle tSNR percentile (special case requiring tsnr_values)
+        if self.criteria_obj.tsnr_percentile_min is not None and tsnr_values:
+            tsnr = metrics.get("tsnr_median", 0)
+            percentile = 100 * np.mean(np.array(tsnr_values) < tsnr)
+            if percentile < self.criteria_obj.tsnr_percentile_min:
+                reasons.append(ExclusionReason(
+                    criterion="tsnr_percentile",
+                    value=percentile,
+                    threshold=self.criteria_obj.tsnr_percentile_min,
+                    description=f"tSNR percentile ({percentile:.1f}%) below threshold ({self.criteria_obj.tsnr_percentile_min}%)",
+                ))
+
+        # Handle Mahalanobis distance (special case requiring separate parameter)
+        if self.criteria_obj.mahalanobis_max is not None and mahalanobis_distance is not None:
+            if mahalanobis_distance > self.criteria_obj.mahalanobis_max:
+                reasons.append(ExclusionReason(
+                    criterion="mahalanobis",
+                    value=mahalanobis_distance,
+                    threshold=self.criteria_obj.mahalanobis_max,
+                    description=f"Mahalanobis distance ({mahalanobis_distance:.2f}) exceeds threshold ({self.criteria_obj.mahalanobis_max})",
+                ))
+
+        excluded = len(reasons) > 0
+        return reasons, excluded
 
 
 @dataclass
@@ -192,103 +390,16 @@ def evaluate_run_exclusion(
     RunExclusion
         Exclusion recommendation with reasons
     """
-    reasons = []
-    metrics = result.metrics
-
-    # Check FD median
-    if criteria.fd_median_max is not None:
-        fd_median = metrics.get("fd_median", 0)
-        if fd_median > criteria.fd_median_max:
-            reasons.append(ExclusionReason(
-                criterion="fd_median",
-                value=fd_median,
-                threshold=criteria.fd_median_max,
-                description=f"Median FD ({fd_median:.3f}mm) exceeds threshold ({criteria.fd_median_max}mm)",
-            ))
-
-    # Check FD percent
-    if criteria.fd_percent_max is not None:
-        fd_percent = metrics.get("fd_percent_above", 0)
-        if fd_percent > criteria.fd_percent_max:
-            reasons.append(ExclusionReason(
-                criterion="fd_percent",
-                value=fd_percent,
-                threshold=criteria.fd_percent_max,
-                description=f"High-motion volumes ({fd_percent:.1f}%) exceed threshold ({criteria.fd_percent_max}%)",
-            ))
-
-    # Check absolute tSNR
-    if criteria.tsnr_min is not None:
-        tsnr = metrics.get("tsnr_median", float("inf"))
-        if tsnr < criteria.tsnr_min:
-            reasons.append(ExclusionReason(
-                criterion="tsnr_min",
-                value=tsnr,
-                threshold=criteria.tsnr_min,
-                description=f"tSNR ({tsnr:.1f}) below minimum threshold ({criteria.tsnr_min})",
-            ))
-
-    # Check tSNR percentile
-    if criteria.tsnr_percentile_min is not None and tsnr_values:
-        tsnr = metrics.get("tsnr_median", 0)
-        percentile = 100 * np.mean(np.array(tsnr_values) < tsnr)
-        if percentile < criteria.tsnr_percentile_min:
-            reasons.append(ExclusionReason(
-                criterion="tsnr_percentile",
-                value=percentile,
-                threshold=criteria.tsnr_percentile_min,
-                description=f"tSNR percentile ({percentile:.1f}%) below threshold ({criteria.tsnr_percentile_min}%)",
-            ))
-
-    # Check DVARS
-    if criteria.dvars_percent_max is not None:
-        dvars_percent = metrics.get("dvars_percent_above", 0)
-        if dvars_percent > criteria.dvars_percent_max:
-            reasons.append(ExclusionReason(
-                criterion="dvars_percent",
-                value=dvars_percent,
-                threshold=criteria.dvars_percent_max,
-                description=f"High-DVARS volumes ({dvars_percent:.1f}%) exceed threshold ({criteria.dvars_percent_max}%)",
-            ))
-
-    # Check outlier percent
-    if criteria.outlier_percent_max is not None:
-        outlier_percent = metrics.get("outlier_percent_above", 0)
-        if outlier_percent > criteria.outlier_percent_max:
-            reasons.append(ExclusionReason(
-                criterion="outlier_percent",
-                value=outlier_percent,
-                threshold=criteria.outlier_percent_max,
-                description=f"Outlier volumes ({outlier_percent:.1f}%) exceed threshold ({criteria.outlier_percent_max}%)",
-            ))
-
-    # Check Mahalanobis distance
-    if criteria.mahalanobis_max is not None and mahalanobis_distance is not None:
-        if mahalanobis_distance > criteria.mahalanobis_max:
-            reasons.append(ExclusionReason(
-                criterion="mahalanobis",
-                value=mahalanobis_distance,
-                threshold=criteria.mahalanobis_max,
-                description=f"Mahalanobis distance ({mahalanobis_distance:.2f}) exceeds threshold ({criteria.mahalanobis_max})",
-            ))
-
-    # Check coverage
-    if criteria.coverage_min is not None:
-        coverage = metrics.get("coverage", 1.0)
-        if coverage < criteria.coverage_min:
-            reasons.append(ExclusionReason(
-                criterion="coverage",
-                value=coverage,
-                threshold=criteria.coverage_min,
-                description=f"Brain coverage ({coverage:.1%}) below threshold ({criteria.coverage_min:.1%})",
-            ))
+    # Use ExclusionEvaluator to check all criteria
+    evaluator = ExclusionEvaluator(criteria)
+    reasons, excluded = evaluator.evaluate(result, tsnr_values, mahalanobis_distance)
 
     return RunExclusion(
         run_id=result.info.get_identifier(),
         subject=result.info.subject,
         session=result.info.session,
         run=result.info.run,
-        excluded=len(reasons) > 0,
+        excluded=excluded,
         reasons=reasons,
     )
 
