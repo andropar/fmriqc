@@ -272,6 +272,59 @@ def assess_brain_mask_quality(
     return metrics
 
 
+def _analyze_frequency_band(
+    power_spectrum: np.ndarray,
+    frequencies: np.ndarray,
+    band_low: float,
+    band_high: float,
+    band_name: str
+) -> Dict[str, float]:
+    """Analyze power in a specific frequency band.
+
+    Parameters
+    ----------
+    power_spectrum : np.ndarray
+        Power spectrum from FFT
+    frequencies : np.ndarray
+        Frequency values
+    band_low : float
+        Lower frequency bound (Hz)
+    band_high : float
+        Upper frequency bound (Hz)
+    band_name : str
+        Name of the band (e.g., 'cardiac', 'respiratory')
+
+    Returns
+    -------
+    dict
+        Dictionary with band power and peak frequency metrics:
+        - {band_name}_power: Power at peak frequency in band
+        - {band_name}_peak_freq: Peak frequency in band (Hz)
+        - {band_name}_band_power: Total power integrated across band
+    """
+    # Create mask for frequency band
+    band_mask = (frequencies >= band_low) & (frequencies <= band_high)
+
+    # Find peak frequency and power in band
+    if np.any(band_mask):
+        band_spectrum = power_spectrum[band_mask]
+        band_freqs = frequencies[band_mask]
+        peak_idx = np.argmax(band_spectrum)
+        peak_freq = band_freqs[peak_idx]
+        peak_power = band_spectrum[peak_idx]
+        band_power = np.sum(band_spectrum)
+    else:
+        peak_freq = 0.0
+        peak_power = 0.0
+        band_power = 0.0
+
+    return {
+        f'{band_name}_power': float(peak_power),
+        f'{band_name}_freq_peak': float(peak_freq),
+        f'{band_name}_band_power': float(band_power),
+    }
+
+
 def detect_physiological_noise(series: np.ndarray, tr: float) -> Dict[str, float]:
     """
     Detect physiological noise (cardiac and respiratory).
@@ -298,20 +351,19 @@ def detect_physiological_noise(series: np.ndarray, tr: float) -> Dict[str, float
 
     Notes
     -----
-    Cardiac frequencies (0.8-1.5 Hz, 48-90 bpm) require TR < 0.67s to detect.
+    Cardiac frequencies (0.67-1.25 Hz, 40-75 bpm) require TR < 0.75s to detect.
     Respiratory frequencies (0.15-0.4 Hz, 9-24 breaths/min) require TR < 1.25s.
     At typical fMRI TRs (1-3s), only respiratory or neither may be detectable.
+
+    Frequency bands are defined in PhysiologicalBands constants and follow
+    standard physiological monitoring ranges.
     """
     # Compute Nyquist frequency
     nyquist_freq = 0.5 / tr
 
-    # Define physiological frequency bands
-    CARDIAC_BAND = (0.8, 1.5)  # 48-90 bpm
-    RESPIRATORY_BAND = (0.15, 0.4)  # 9-24 breaths/min
-
     # Check what's detectable given Nyquist
-    cardiac_detectable = nyquist_freq > CARDIAC_BAND[0]
-    respiratory_detectable = nyquist_freq > RESPIRATORY_BAND[0]
+    cardiac_detectable = nyquist_freq > PhysiologicalBands.CARDIAC_LOW
+    respiratory_detectable = nyquist_freq > PhysiologicalBands.RESPIRATORY_LOW
 
     # Initialize metrics
     metrics = {
@@ -332,35 +384,45 @@ def detect_physiological_noise(series: np.ndarray, tr: float) -> Dict[str, float
     fs = 1.0 / tr
     freq, psd = signal.welch(detrended, fs=fs, nperseg=min(256, len(detrended)))
 
-    # Cardiac peak - only analyze if at least partially detectable
+    # Analyze cardiac band - only if at least partially detectable
     if cardiac_detectable:
         # Clamp upper bound to Nyquist
-        cardiac_upper = min(CARDIAC_BAND[1], nyquist_freq * 0.95)
-        cardiac_mask = (freq >= CARDIAC_BAND[0]) & (freq <= cardiac_upper)
-        if np.any(cardiac_mask):
-            cardiac_idx = np.argmax(psd[cardiac_mask])
-            metrics["cardiac_freq_peak"] = float(freq[cardiac_mask][cardiac_idx])
-            metrics["cardiac_power"] = float(psd[cardiac_mask][cardiac_idx])
+        cardiac_upper = min(PhysiologicalBands.CARDIAC_HIGH, nyquist_freq * 0.95)
+        cardiac_metrics = _analyze_frequency_band(
+            psd,
+            freq,
+            PhysiologicalBands.CARDIAC_LOW,
+            cardiac_upper,
+            'cardiac'
+        )
+        # Update metrics with cardiac results (using original key names)
+        metrics["cardiac_freq_peak"] = cardiac_metrics["cardiac_freq_peak"]
+        metrics["cardiac_power"] = cardiac_metrics["cardiac_power"]
 
-    # Respiratory peak - only analyze if at least partially detectable
+    # Analyze respiratory band - only if at least partially detectable
     if respiratory_detectable:
         # Clamp upper bound to Nyquist
-        resp_upper = min(RESPIRATORY_BAND[1], nyquist_freq * 0.95)
-        resp_mask = (freq >= RESPIRATORY_BAND[0]) & (freq <= resp_upper)
-        if np.any(resp_mask):
-            resp_idx = np.argmax(psd[resp_mask])
-            metrics["respiratory_freq_peak"] = float(freq[resp_mask][resp_idx])
-            metrics["respiratory_power"] = float(psd[resp_mask][resp_idx])
+        resp_upper = min(PhysiologicalBands.RESPIRATORY_HIGH, nyquist_freq * 0.95)
+        respiratory_metrics = _analyze_frequency_band(
+            psd,
+            freq,
+            PhysiologicalBands.RESPIRATORY_LOW,
+            resp_upper,
+            'respiratory'
+        )
+        # Update metrics with respiratory results (using original key names)
+        metrics["respiratory_freq_peak"] = respiratory_metrics["respiratory_freq_peak"]
+        metrics["respiratory_power"] = respiratory_metrics["respiratory_power"]
 
     # Physiological power ratio - only include detectable bands
     physio_power = 0.0
     if cardiac_detectable:
-        cardiac_upper = min(CARDIAC_BAND[1], nyquist_freq * 0.95)
-        cardiac_mask = (freq >= CARDIAC_BAND[0]) & (freq <= cardiac_upper)
+        cardiac_upper = min(PhysiologicalBands.CARDIAC_HIGH, nyquist_freq * 0.95)
+        cardiac_mask = (freq >= PhysiologicalBands.CARDIAC_LOW) & (freq <= cardiac_upper)
         physio_power += np.sum(psd[cardiac_mask])
     if respiratory_detectable:
-        resp_upper = min(RESPIRATORY_BAND[1], nyquist_freq * 0.95)
-        resp_mask = (freq >= RESPIRATORY_BAND[0]) & (freq <= resp_upper)
+        resp_upper = min(PhysiologicalBands.RESPIRATORY_HIGH, nyquist_freq * 0.95)
+        resp_mask = (freq >= PhysiologicalBands.RESPIRATORY_LOW) & (freq <= resp_upper)
         physio_power += np.sum(psd[resp_mask])
 
     total_power = np.sum(psd)

@@ -1,4 +1,30 @@
-"""Cross-run consistency analysis."""
+"""Cross-run consistency analysis.
+
+This module provides tools for assessing consistency across multiple fMRI runs
+within a session using various statistical approaches.
+
+Key Methods:
+-----------
+- Intraclass Correlation Coefficient (ICC): Shrout & Fleiss (1979)
+- Split-half reliability: Spearman-Brown corrected correlation
+- Coefficient of variation (CV): Normalized measure of dispersion
+- Linear trend detection: Tests for systematic drift across runs
+
+References:
+----------
+Shrout, P. E., & Fleiss, J. L. (1979). Intraclass correlations: uses in assessing
+rater reliability. Psychological Bulletin, 86(2), 420-428.
+
+McGraw, K. O., & Wong, S. P. (1996). Forming inferences about some intraclass
+correlation coefficients. Psychological Methods, 1(1), 30-46.
+
+Koo, T. K., & Li, M. Y. (2016). A guideline of selecting and reporting intraclass
+correlation coefficients for reliability research. Journal of Chiropractic
+Medicine, 15(2), 155-163.
+
+Spearman, C. (1910). Correlation calculated from faulty data. British Journal
+of Psychology, 3(3), 271-295.
+"""
 
 from typing import Dict, List, Tuple
 
@@ -40,6 +66,20 @@ def compute_icc(data: np.ndarray, icc_type: str = "2,1") -> float:
 
     For ICC(1,1): Only MSr and MSw (within) are used (one-way model)
     For ICC(2,1) and ICC(3,1): Full two-way decomposition
+
+    ANOVA Assumptions:
+    ------------------
+    1. **Independence**: Observations should be independent between subjects/targets
+    2. **Normality**: Data should be approximately normally distributed within groups
+    3. **Homogeneity of variance**: Variances should be similar across groups
+    4. **Random effects**: For ICC(2,1) and ICC(3,1), assumes random selection
+
+    Violations and Robustness:
+    -------------------------
+    - ICC is relatively robust to moderate violations of normality
+    - Large sample sizes (n > 20) provide more robust estimates
+    - Severe outliers can strongly affect ICC values
+    - Consider using robust alternatives (e.g., robust ANOVA) for heavily skewed data
 
     References
     ----------
@@ -124,6 +164,122 @@ def compute_icc(data: np.ndarray, icc_type: str = "2,1") -> float:
         icc = (ms_rows - ms_error) / denom
 
     return float(np.clip(icc, 0, 1))
+
+
+class ConsistencyInterpreter:
+    """Interpret consistency metrics and provide qualitative assessments."""
+
+    # Thresholds for interpretation
+    CONSISTENCY_EXCELLENT = 50.0
+    CONSISTENCY_GOOD = 20.0
+    CONSISTENCY_FAIR = 10.0
+
+    ICC_EXCELLENT = 0.90
+    ICC_GOOD = 0.75
+    ICC_MODERATE = 0.50
+    ICC_POOR = 0.25
+
+    RELIABILITY_EXCELLENT = 0.90
+    RELIABILITY_GOOD = 0.75
+    RELIABILITY_ADEQUATE = 0.60
+
+    @staticmethod
+    def interpret_consistency_score(score: float) -> str:
+        """Interpret overall consistency score.
+
+        Parameters
+        ----------
+        score : float
+            Overall consistency score
+
+        Returns
+        -------
+        str
+            Qualitative interpretation ('excellent', 'good', 'fair', 'poor')
+        """
+        if score > ConsistencyInterpreter.CONSISTENCY_EXCELLENT:
+            return "excellent"
+        elif score > ConsistencyInterpreter.CONSISTENCY_GOOD:
+            return "good"
+        elif score > ConsistencyInterpreter.CONSISTENCY_FAIR:
+            return "fair"
+        else:
+            return "poor"
+
+    @staticmethod
+    def interpret_icc(icc: float) -> str:
+        """Interpret ICC value.
+
+        Based on Koo & Li (2016) guidelines.
+
+        Parameters
+        ----------
+        icc : float
+            ICC value (0 to 1)
+
+        Returns
+        -------
+        str
+            Qualitative interpretation
+        """
+        if icc > ConsistencyInterpreter.ICC_EXCELLENT:
+            return "excellent"
+        elif icc > ConsistencyInterpreter.ICC_GOOD:
+            return "good"
+        elif icc > ConsistencyInterpreter.ICC_MODERATE:
+            return "moderate"
+        elif icc > ConsistencyInterpreter.ICC_POOR:
+            return "fair"
+        else:
+            return "poor"
+
+    @staticmethod
+    def interpret_reliability(reliability: float) -> str:
+        """Interpret split-half reliability value.
+
+        Parameters
+        ----------
+        reliability : float
+            Reliability coefficient (0 to 1)
+
+        Returns
+        -------
+        str
+            Qualitative interpretation
+        """
+        if reliability > ConsistencyInterpreter.RELIABILITY_EXCELLENT:
+            return "excellent"
+        elif reliability > ConsistencyInterpreter.RELIABILITY_GOOD:
+            return "good"
+        elif reliability > ConsistencyInterpreter.RELIABILITY_ADEQUATE:
+            return "adequate"
+        else:
+            return "questionable"
+
+    @staticmethod
+    def interpret_cv(cv: float) -> str:
+        """Interpret coefficient of variation.
+
+        Parameters
+        ----------
+        cv : float
+            Coefficient of variation (ratio)
+
+        Returns
+        -------
+        str
+            Qualitative interpretation
+        """
+        if cv < 0.05:
+            return "very_low"
+        elif cv < 0.10:
+            return "low"
+        elif cv < 0.20:
+            return "moderate"
+        elif cv < 0.30:
+            return "high"
+        else:
+            return "very_high"
 
 
 def compute_split_half_reliability(
@@ -401,18 +557,23 @@ def generate_consistency_report(session_results: SessionResults) -> Dict[str, an
         if not np.isnan(rel):
             report["split_half_reliability"][key] = float(rel)
 
-    # Summary interpretation
+    # Use interpreter for qualitative assessment
+    interpreter = ConsistencyInterpreter()
     consistency_score = report["consistency_metrics"].get("overall_consistency", 0)
+    report["consistency_interpretation"] = interpreter.interpret_consistency_score(
+        consistency_score
+    )
 
-    if consistency_score > 50:
-        interpretation = "excellent"
-    elif consistency_score > 20:
-        interpretation = "good"
-    elif consistency_score > 10:
-        interpretation = "fair"
-    else:
-        interpretation = "poor"
+    # Add ICC interpretation if available
+    if "spatial_icc" in report["consistency_metrics"]:
+        icc = report["consistency_metrics"]["spatial_icc"]
+        report["icc_interpretation"] = interpreter.interpret_icc(icc)
 
-    report["consistency_interpretation"] = interpretation
+    # Add reliability interpretations
+    report["reliability_interpretations"] = {}
+    for key, value in report["split_half_reliability"].items():
+        report["reliability_interpretations"][key] = interpreter.interpret_reliability(
+            value
+        )
 
     return report

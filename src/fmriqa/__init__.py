@@ -40,7 +40,7 @@ def __getattr__(name):
     elif name in ("RunInfo", "RunResult", "SessionResults", "StudyResults", "SubjectResults"):
         from . import structures
         return getattr(structures, name)
-    elif name in ("QAManifest", "generate_manifest_from_globs"):
+    elif name in ("QAManifest", "generate_manifest_from_globs", "ManifestGenerator", "BIDSEntityExtractor"):
         from . import manifest
         return getattr(manifest, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
@@ -56,4 +56,6 @@ __all__ = [
     "run_qa",
     "QAManifest",
     "generate_manifest_from_globs",
+    "ManifestGenerator",
+    "BIDSEntityExtractor",
 ]

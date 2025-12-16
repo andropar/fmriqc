@@ -11,9 +11,91 @@ import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import yaml
+
+
+class BIDSEntityExtractor:
+    """Extract BIDS entities from file paths and names."""
+
+    # BIDS entity patterns
+    ENTITY_PATTERNS = {
+        'sub': r'sub-([a-zA-Z0-9]+)',
+        'ses': r'ses-([a-zA-Z0-9]+)',
+        'task': r'task-([a-zA-Z0-9]+)',
+        'run': r'run-([a-zA-Z0-9]+)',
+        'echo': r'echo-([0-9]+)',
+        'part': r'part-(mag|phase|real|imag)',
+        'desc': r'desc-([a-zA-Z0-9]+)',
+    }
+
+    @classmethod
+    def extract_from_path(cls, path: Path) -> Dict[str, Optional[str]]:
+        """Extract all BIDS entities from file path.
+
+        Parameters
+        ----------
+        path : Path
+            File path to extract from
+
+        Returns
+        -------
+        dict
+            Dictionary of entity name to value (None if not found)
+        """
+        path_str = str(path)
+        entities = {}
+
+        for entity, pattern in cls.ENTITY_PATTERNS.items():
+            match = re.search(pattern, path_str)
+            entities[entity] = match.group(1) if match else None
+
+        return entities
+
+    @classmethod
+    def extract_subject_session(cls, path: Path) -> Tuple[Optional[str], Optional[str]]:
+        """Extract subject and session from path.
+
+        Parameters
+        ----------
+        path : Path
+            File path to extract from
+
+        Returns
+        -------
+        tuple
+            (subject, session) - both can be None
+        """
+        entities = cls.extract_from_path(path)
+        return entities.get('sub'), entities.get('ses')
+
+    @staticmethod
+    def normalize_entity(entity: str, value: str) -> Optional[str]:
+        """Normalize entity value to standard format.
+
+        Parameters
+        ----------
+        entity : str
+            Entity name (e.g., 'sub', 'ses')
+        value : str
+            Entity value
+
+        Returns
+        -------
+        str or None
+            Normalized value with entity prefix, or None if value is empty
+        """
+        if not value:
+            return None
+
+        # Remove prefix if already present
+        prefix = f"{entity}-"
+        if value.startswith(prefix):
+            value = value[len(prefix):]
+
+        # Return with prefix
+        return f"{prefix}{value}"
 
 
 @dataclass
@@ -306,6 +388,212 @@ class QAManifest:
         lines.append(f"Runs with motion: {n_motion}/{n_runs}")
 
         return "\n".join(lines)
+
+
+class ManifestGenerator:
+    """Generate QA manifests from BIDS datasets."""
+
+    def __init__(self, bids_root: Path):
+        """Initialize manifest generator.
+
+        Parameters
+        ----------
+        bids_root : Path
+            Root directory of BIDS dataset
+        """
+        self.bids_root = Path(bids_root).resolve()
+        self.extractor = BIDSEntityExtractor()
+
+    def generate_from_globs(
+        self,
+        globs: List[str],
+        output_path: Optional[Path] = None,
+        name: str = "",
+        description: str = "",
+    ) -> QAManifest:
+        """Generate manifest from glob patterns.
+
+        Parameters
+        ----------
+        globs : list of str
+            List of glob patterns to match BOLD files
+        output_path : Path, optional
+            Path to save manifest YAML
+        name : str, optional
+            Optional name for the manifest
+        description : str, optional
+            Optional description for the manifest
+
+        Returns
+        -------
+        QAManifest
+            Generated manifest
+        """
+        # Discover files
+        files = self._discover_files(globs)
+
+        # Organize by subject/session
+        organized = self._organize_by_subject_session(files)
+
+        # Build manifest structure
+        manifest = self._build_manifest_structure(organized, name, description)
+
+        # Save if output path provided
+        if output_path:
+            manifest.to_file(output_path)
+
+        return manifest
+
+    def _discover_files(self, globs: List[str]) -> List[Path]:
+        """Discover files matching glob patterns.
+
+        Parameters
+        ----------
+        globs : list of str
+            Glob patterns
+
+        Returns
+        -------
+        list of Path
+            Discovered file paths
+        """
+        files = []
+        for pattern in globs:
+            if '*' in pattern or '?' in pattern:
+                # Glob pattern
+                matched = list(self.bids_root.glob(pattern))
+                files.extend(matched)
+            else:
+                # Direct path
+                path = self.bids_root / pattern
+                if path.exists():
+                    files.append(path)
+
+        # Filter for BOLD files and deduplicate
+        files = [f for f in files if self._is_bold_file(f)]
+        files = sorted(set(files))
+
+        return files
+
+    def _is_bold_file(self, path: Path) -> bool:
+        """Check if file is a BOLD functional image.
+
+        Parameters
+        ----------
+        path : Path
+            File path
+
+        Returns
+        -------
+        bool
+            True if BOLD file
+        """
+        return (
+            path.suffix in ['.nii', '.gz'] and
+            '_bold' in path.name and
+            path.is_file()
+        )
+
+    def _organize_by_subject_session(
+        self,
+        files: List[Path]
+    ) -> Dict[str, Dict[str, List[Path]]]:
+        """Organize files by subject and session.
+
+        Parameters
+        ----------
+        files : list of Path
+            File paths
+
+        Returns
+        -------
+        dict
+            Nested dict: {subject: {session: [files]}}
+        """
+        organized = {}
+
+        for file_path in files:
+            subject, session = self.extractor.extract_subject_session(file_path)
+
+            if not subject:
+                print(f"Warning: Could not extract subject from {file_path}")
+                continue
+
+            # Use default session if not found
+            if not session:
+                session = "01"
+
+            # Normalize
+            subject = self.extractor.normalize_entity('sub', subject)
+            session = self.extractor.normalize_entity('ses', session)
+
+            # Add to structure
+            if subject not in organized:
+                organized[subject] = {}
+            if session not in organized[subject]:
+                organized[subject][session] = []
+
+            organized[subject][session].append(file_path)
+
+        return organized
+
+    def _build_manifest_structure(
+        self,
+        organized: Dict[str, Dict[str, List[Path]]],
+        name: str = "",
+        description: str = "",
+    ) -> QAManifest:
+        """Build manifest from organized files.
+
+        Parameters
+        ----------
+        organized : dict
+            Organized file structure
+        name : str, optional
+            Manifest name
+        description : str, optional
+            Manifest description
+
+        Returns
+        -------
+        QAManifest
+            Constructed manifest
+        """
+        subjects = []
+
+        for subject_id, sessions in sorted(organized.items()):
+            sessions_list = []
+
+            for session_id, files in sorted(sessions.items()):
+                runs = []
+
+                for file_path in sorted(files):
+                    entities = self.extractor.extract_from_path(file_path)
+                    run_label = entities.get('run') or '01'
+
+                    # Normalize run label
+                    if not run_label.startswith('run-'):
+                        run_label = f"run-{run_label}"
+
+                    run = ManifestRun(
+                        bold=file_path,
+                        mask=None,
+                        motion=None,
+                        label=run_label,
+                    )
+
+                    runs.append(run)
+
+                sessions_list.append(ManifestSession(id=session_id, runs=runs))
+
+            subjects.append(ManifestSubject(id=subject_id, sessions=sessions_list))
+
+        return QAManifest(
+            subjects=subjects,
+            name=name,
+            description=description,
+            base_path=self.bids_root,
+        )
 
 
 def generate_manifest_from_globs(
