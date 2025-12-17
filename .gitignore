@@ -73,3 +73,9 @@ sample_reports/
 test_reporting_refactor.py
 test_comprehensive.py
 test_sample_report_generator.py
+
+# Test data
+ds001419/
+ds001419_qa_output/
+ds001419_manifest.yaml
+*.tar.gz
