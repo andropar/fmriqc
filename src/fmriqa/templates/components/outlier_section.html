@@ -1,0 +1,79 @@
+{# Outlier detection section - shows multivariate and univariate outlier runs #}
+{% if outlier_data %}
+<h2>Outliers Detected</h2>
+<p class="section-intro">Runs flagged for quality concerns based on multiple detection methods.</p>
+
+{# Methodology explanation #}
+<details class="methodology-info" style="margin-bottom: 1.5rem; background: var(--paper-warm); padding: 1rem; border-radius: 8px; border: 1px solid var(--border);">
+    <summary style="cursor: pointer; font-weight: 600;">How are outliers detected?</summary>
+    <div style="margin-top: 0.75rem; font-size: 0.9rem; line-height: 1.6;">
+        <p><strong>Unusual runs</strong> are flagged when their combination of metrics is statistically unusual compared to other runs. This catches runs that might look okay on individual metrics but have an unusual pattern overall.</p>
+        <p style="margin-top: 0.5rem;"><strong>Extreme motion</strong> flags runs with too much head movement: median framewise displacement &gt; 0.5mm, or more than 20% of volumes exceeding 0.3mm movement.</p>
+        <p style="margin-top: 0.5rem;"><strong>Low tSNR</strong> flags runs where signal quality is poor: median tSNR below {{ outlier_data.tsnr_threshold|round(0, 'floor')|int }}. For reference, tSNR below 20 is poor, 20-40 is marginal, above 40 is good.</p>
+        <p style="margin-top: 0.5rem;"><strong>Single-metric outliers</strong> flag runs that are extreme on any individual metric (more than 3 standard deviations from typical).</p>
+    </div>
+</details>
+
+{# Summary statistics #}
+{% if outlier_data.summary %}
+<div class="outlier-summary" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+    <div class="stat-card">
+        <span class="stat-value">{{ outlier_data.summary.get('multivariate_outliers', 0) }}</span>
+        <span class="stat-label">Multivariate</span>
+    </div>
+    <div class="stat-card">
+        <span class="stat-value">{{ outlier_data.summary.get('extreme_motion_runs', 0) }}</span>
+        <span class="stat-label">High Motion</span>
+    </div>
+    <div class="stat-card">
+        <span class="stat-value">{{ outlier_data.summary.get('low_tsnr_runs', 0) }}</span>
+        <span class="stat-label">Low tSNR</span>
+    </div>
+    <div class="stat-card">
+        <span class="stat-value">{{ outlier_data.summary.get('percentage_flagged', 0)|round(1) }}%</span>
+        <span class="stat-label">Total Flagged</span>
+    </div>
+</div>
+{% endif %}
+
+{# Detailed table of flagged runs #}
+{% if outlier_data.outlier_explanations %}
+{% set n_outliers = outlier_data.outlier_explanations | length %}
+<details>
+    <summary>View all {{ n_outliers }} flagged runs</summary>
+    <table class="metrics-table">
+        <thead>
+            <tr>
+                <th>Run</th>
+                <th>Reasons Flagged</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for run_id, reasons in outlier_data.outlier_explanations | dict_items | sort %}
+            <tr>
+                <td><code>{{ run_id }}</code></td>
+                <td style="text-align: left;">
+                    {% for reason in reasons %}
+                    • {{ reason }}<br>
+                    {% endfor %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</details>
+{% endif %}
+
+{# Warnings if any #}
+{% if outlier_data.warnings %}
+<details style="margin-top: 1rem;">
+    <summary>Detection Warnings</summary>
+    <ul>
+        {% for warning in outlier_data.warnings %}
+        <li>{{ warning }}</li>
+        {% endfor %}
+    </ul>
+</details>
+{% endif %}
+
+{% endif %}

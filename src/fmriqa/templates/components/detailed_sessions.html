@@ -1,0 +1,5 @@
+{# Detailed sessions section - loops over all sessions for a subject #}
+{% for session in subject.sessions %}
+    {% set session_metrics = compute_session_metrics(session.runs) %}
+    {% include 'components/session_detail.html' %}
+{% endfor %}

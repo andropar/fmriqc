@@ -1,0 +1,155 @@
+{# Cross-session alignment verification section #}
+{% if alignment_report %}
+<details class="alignment-section" style="margin-top: 2rem;">
+    <summary style="cursor: pointer; font-weight: 600; padding: 0.75rem; background: var(--hover); border-radius: 8px;">
+        <span style="display: flex; align-items: center; gap: 0.5rem;">
+            <span style="font-size: 1.2rem;">🔗</span>
+            <span>Cross-Session Alignment Verification</span>
+
+            {# Quality badge #}
+            {% set flagged = alignment_report.get('flagged_sessions', []) %}
+            {% set n_sessions = alignment_report.get('session_metrics', {})|length %}
+            {% if n_sessions == 0 %}
+            <span class="flag flag-info" style="margin-left: auto;">No comparisons</span>
+            {% elif flagged|length == 0 %}
+            <span class="flag flag-success" style="margin-left: auto;">✓ All aligned</span>
+            {% else %}
+            <span class="flag flag-warning" style="margin-left: auto;">⚠ {{ flagged|length }} session(s) flagged</span>
+            {% endif %}
+        </span>
+    </summary>
+    <div style="padding: 1rem 0;">
+
+        {# Reference session info #}
+        {% set ref_session = alignment_report.get('reference_session', 'unknown') %}
+        <p><strong>Reference session:</strong> ses-{{ ref_session }}</p>
+
+        {# Stability metrics #}
+        {% set stability = alignment_report.get('stability_metrics', {}) %}
+        {% if stability %}
+        <h4 style="margin-top: 1rem;">Stability Metrics</h4>
+        <div class="metrics-summary">
+            {% if 'mean_correlation' in stability %}
+            <div class="metric-item">
+                <div class="metric-item-label">Mean Correlation</div>
+                <div class="metric-item-value">{{ stability['mean_correlation']|round(3) }}</div>
+            </div>
+            {% endif %}
+            {% if 'mean_alignment_score' in stability %}
+            {% set score = stability['mean_alignment_score'] %}
+            {% if score >= 0.9 %}
+                {% set quality = 'excellent' %}
+                {% set color = '#27ae60' %}
+            {% elif score >= 0.8 %}
+                {% set quality = 'good' %}
+                {% set color = '#2ecc71' %}
+            {% elif score >= 0.65 %}
+                {% set quality = 'acceptable' %}
+                {% set color = '#f1c40f' %}
+            {% else %}
+                {% set quality = 'poor' %}
+                {% set color = '#e74c3c' %}
+            {% endif %}
+            <div class="metric-item">
+                <div class="metric-item-label">Mean Alignment Score</div>
+                <div class="metric-item-value" style="color: {{ color }};">{{ score|round(3) }}</div>
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {# Cross-session ICC #}
+        {% set icc_values = alignment_report.get('cross_session_icc', {}) %}
+        {% if icc_values %}
+        <h4 style="margin-top: 1rem;">Cross-Session ICC</h4>
+        <div class="metrics-summary">
+            {% for key, value in icc_values|dict_items %}
+            {% set formatted_name = key.replace('_', ' ').title() %}
+            <div class="metric-item">
+                <div class="metric-item-label">{{ formatted_name }}</div>
+                <div class="metric-item-value">{{ value|round(3) }}</div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {# Session-by-session alignment table #}
+        {% set session_metrics = alignment_report.get('session_metrics', {}) %}
+        {% if session_metrics %}
+        <h4 style="margin-top: 1rem;">Session Alignment to Reference</h4>
+        <div style="overflow-x: auto;">
+            <table class="data-table" style="min-width: 600px;">
+                <thead>
+                    <tr>
+                        <th>Session</th>
+                        <th>Correlation</th>
+                        <th>Mutual Info</th>
+                        <th>Edge Align</th>
+                        <th>Dice</th>
+                        <th>COM Shift</th>
+                        <th>Overall</th>
+                        <th>Quality</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% set quality_colors = {
+                        'excellent': '#27ae60',
+                        'good': '#2ecc71',
+                        'acceptable': '#f1c40f',
+                        'poor': '#e74c3c',
+                        'failed': '#c0392b'
+                    } %}
+                    {% for session, metrics in session_metrics|dict_items|sort %}
+                    {% set quality = metrics.get('quality', 'unknown') %}
+                    {% set color = quality_colors.get(quality, '#95a5a6') %}
+                    {% set is_flagged = session in flagged %}
+                    {% set row_style = 'background: rgba(231, 76, 60, 0.1);' if is_flagged else '' %}
+                    <tr style="{{ row_style }}">
+                        <td><strong>ses-{{ session }}</strong>{% if is_flagged %}⚠️{% endif %}</td>
+                        <td>{{ metrics.get('correlation', 0)|round(3) }}</td>
+                        <td>{{ metrics.get('mutual_information', 0)|round(3) }}</td>
+                        <td>{{ metrics.get('edge_alignment', 0)|round(3) }}</td>
+                        <td>{{ metrics.get('dice_overlap', 0)|round(3) }}</td>
+                        <td>{{ metrics.get('center_of_mass_distance', 0)|round(2) }} mm</td>
+                        <td>{{ metrics.get('overall_score', 0)|round(3) }}</td>
+                        <td><span style="color: {{ color }}; font-weight: bold;">{{ quality.upper() }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+        {# Flagged sessions #}
+        {% if flagged %}
+        <div class="warnings" style="margin-top: 1rem;">
+            <strong>⚠ Sessions with alignment concerns:</strong>
+            <ul>
+                {% for sess in flagged %}
+                <li>ses-{{ sess }} - Review alignment visualization or consider re-registration</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        {# Alignment figures #}
+        {% set figure_paths = alignment_report.get('alignment_figure_paths', {}) %}
+        {% if figure_paths %}
+        <h4 style="margin-top: 1rem;">Alignment Visualizations</h4>
+        {% for label, path_str in figure_paths|dict_items %}
+        {% if path_str %}
+        {% set path = path_str %}
+        {% set rel_path = path|relative_asset(output_dir) %}
+        <details style="margin-top: 0.5rem;">
+            <summary style="cursor: pointer; padding: 0.5rem; background: var(--hover); border-radius: 4px;">{{ label }}</summary>
+            <figure style="margin-top: 0.5rem;">
+                <img src="{{ rel_path }}" alt="Alignment verification for {{ label }}" style="max-width: 100%;">
+            </figure>
+        </details>
+        {% endif %}
+        {% endfor %}
+        {% endif %}
+
+    </div>
+</details>
+{% endif %}

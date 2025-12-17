@@ -1,0 +1,120 @@
+{# Exclusion recommendations section - shows automatic exclusion recommendations #}
+{% if exclusion_data %}
+<h2>Exclusion Recommendations</h2>
+<p class="section-intro">Automatic exclusion recommendations based on configurable quality criteria.</p>
+
+{# Summary statistics #}
+{% set summary = exclusion_data.summary %}
+<div class="stats-dashboard" style="margin-bottom: 1.5rem;">
+    <div class="stat-card">
+        <span class="stat-value">{{ summary['excluded_runs'] }}</span>
+        <span class="stat-label">Recommended Exclusions</span>
+    </div>
+    <div class="stat-card">
+        <span class="stat-value">{{ summary['retained_runs'] }}</span>
+        <span class="stat-label">Retained Runs</span>
+    </div>
+    <div class="stat-card">
+        <span class="stat-value">{{ summary['exclusion_rate_percent']|round(1) }}%</span>
+        <span class="stat-label">Exclusion Rate</span>
+    </div>
+    <div class="stat-card">
+        <span class="stat-value">{{ summary['volume_data_loss_percent']|round(1) }}%</span>
+        <span class="stat-label">Volume Data Loss</span>
+    </div>
+</div>
+
+{# Criteria information #}
+<details style="margin-bottom: 1rem;">
+    <summary>Exclusion Criteria (Stringency: {{ exclusion_data.stringency|capitalize }})</summary>
+    <ul style="margin-top: 0.5rem;">
+        {% set criteria = exclusion_data.criteria %}
+        {% if 'fd_median_max' in criteria %}
+        <li>Median FD threshold: {{ criteria['fd_median_max'] }}mm</li>
+        {% endif %}
+        {% if 'fd_percent_max' in criteria %}
+        <li>Max high-motion volumes: {{ criteria['fd_percent_max'] }}%</li>
+        {% endif %}
+        {% if 'tsnr_min' in criteria %}
+        <li>Minimum tSNR: {{ criteria['tsnr_min'] }}</li>
+        {% endif %}
+        {% if 'tsnr_percentile_min' in criteria %}
+        <li>Minimum tSNR percentile: {{ criteria['tsnr_percentile_min'] }}%</li>
+        {% endif %}
+        {% if 'dvars_percent_max' in criteria %}
+        <li>Max high-DVARS volumes: {{ criteria['dvars_percent_max'] }}%</li>
+        {% endif %}
+        {% if 'mahalanobis_max' in criteria %}
+        <li>Mahalanobis distance threshold: {{ criteria['mahalanobis_max'] }}</li>
+        {% endif %}
+    </ul>
+</details>
+
+{# Excluded runs table #}
+{% if exclusion_data.excluded_runs %}
+{% set n_excluded = exclusion_data.excluded_runs | length %}
+<details>
+    <summary>View all {{ n_excluded }} runs recommended for exclusion</summary>
+    <table class="metrics-table">
+        <thead>
+            <tr>
+                <th>Run</th>
+                <th>Reasons</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for exc in exclusion_data.excluded_runs %}
+            <tr>
+                <td><code>{{ exc.run_id }}</code></td>
+                <td style="text-align: left;">
+                    {% for reason in exc.reasons %}
+                    • {{ reason.description }}<br>
+                    {% endfor %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</details>
+{% endif %}
+
+{# Volume scrubbing - runs with >10% data loss #}
+{% if exclusion_data.high_scrub_runs %}
+<details style="margin-top: 1rem;">
+    <summary>Runs with &gt;10% Volume Scrubbing</summary>
+    <table class="metrics-table" style="margin-top: 0.5rem;">
+        <thead>
+            <tr>
+                <th>Run</th>
+                <th>Flagged Volumes</th>
+                <th>Data Loss</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for s in exclusion_data.high_scrub_runs %}
+            <tr>
+                <td><code>{{ s.run_id }}</code></td>
+                <td>{{ s.flagged_volumes | length }}/{{ s.n_volumes }}</td>
+                <td>{{ s.data_loss_percent|round(1) }}%</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</details>
+{% endif %}
+
+{# Reason breakdown #}
+{% set reason_counts = summary.get('exclusion_reason_counts', {}) %}
+{% if reason_counts %}
+<details style="margin-top: 1rem;">
+    <summary>Exclusion Reason Breakdown</summary>
+    <ul style="margin-top: 0.5rem;">
+        {% for reason, count in reason_counts | dict_items | sort(attribute='1', reverse=True) %}
+        {% set label = exclusion_data.reason_labels.get(reason, reason) %}
+        <li>{{ label }}: {{ count }} run(s)</li>
+        {% endfor %}
+    </ul>
+</details>
+{% endif %}
+
+{% endif %}

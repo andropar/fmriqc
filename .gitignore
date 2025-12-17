@@ -67,3 +67,9 @@ dmypy.json
 
 # Project specific
 *.log
+
+# Test outputs and samples
+sample_reports/
+test_reporting_refactor.py
+test_comprehensive.py
+test_sample_report_generator.py

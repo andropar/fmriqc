@@ -7,6 +7,8 @@ from typing import Dict, List, Optional, Tuple, Any
 
 import numpy as np
 
+from .utils import split_dict_arrays, coerce_scalar
+
 
 @dataclass
 class RunInfo:
@@ -73,8 +75,8 @@ class RunResult:
         Convert to cacheable dictionary (without large arrays).
         Only stores metrics, flags, warnings, and metadata.
         """
-        series_arrays, series_scalars = self._split_dict(self.series)
-        slice_arrays, slice_scalars = self._split_dict(self.slice_qc or {})
+        series_arrays, series_scalars = split_dict_arrays(self.series)
+        slice_arrays, slice_scalars = split_dict_arrays(self.slice_qc or {})
 
         return {
             "info": self.info.to_dict(),
@@ -88,11 +90,11 @@ class RunResult:
             "maps": list(self.maps.keys()),
             "series_arrays": list(series_arrays.keys()),
             "series_scalars": {
-                key: self._coerce_scalar(value) for key, value in series_scalars.items()
+                key: coerce_scalar(value) for key, value in series_scalars.items()
             },
             "slice_qc_arrays": list(slice_arrays.keys()),
             "slice_qc_scalars": {
-                key: self._coerce_scalar(value) for key, value in slice_scalars.items()
+                key: coerce_scalar(value) for key, value in slice_scalars.items()
             },
             "asset_paths": {
                 key: str(value) if value is not None else None
@@ -104,23 +106,6 @@ class RunResult:
     def needs_reprocessing(cls, cached_data: Dict, current_mtime: float) -> bool:
         """Check if run needs reprocessing based on modification time."""
         return cached_data.get("file_mtime", 0) < current_mtime
-
-    @staticmethod
-    def _split_dict(data: Dict[str, Any]) -> Tuple[Dict[str, np.ndarray], Dict[str, Any]]:
-        arrays: Dict[str, np.ndarray] = {}
-        scalars: Dict[str, Any] = {}
-        for key, value in data.items():
-            if isinstance(value, np.ndarray):
-                arrays[key] = value
-            else:
-                scalars[key] = value
-        return arrays, scalars
-
-    @staticmethod
-    def _coerce_scalar(value: Any) -> Any:
-        if isinstance(value, np.generic):
-            return value.item()
-        return value
 
 
 @dataclass

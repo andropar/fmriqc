@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+
+{% block title %}fMRI QA Report{% endblock %}
+
+{% block header %}
+<header>
+    <div class="container">
+        <h1>fMRI Quality Assurance Report</h1>
+        <p>Generated: {{ generation_time }}</p>
+    </div>
+</header>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    {# Summary cards #}
+    <div class="summary-cards">
+        <div class="card">
+            <h3>Subjects</h3>
+            <div class="value">{{ study.subjects|length }}</div>
+        </div>
+        <div class="card">
+            <h3>Total Runs</h3>
+            <div class="value">{{ total_runs }}</div>
+        </div>
+        {% if study.overall_metrics.tsnr_median %}
+        <div class="card">
+            <h3>Median tSNR</h3>
+            <div class="value">{{ "%.1f"|format(study.overall_metrics.tsnr_median) }}</div>
+        </div>
+        {% endif %}
+        {% if study.overall_metrics.fd_median %}
+        <div class="card">
+            <h3>Median FD</h3>
+            <div class="value">{{ "%.3f"|format(study.overall_metrics.fd_median) }}</div>
+        </div>
+        {% endif %}
+    </div>
+
+    {# Analysis information #}
+    {% if study.analysis_metadata %}
+    {% include 'components/analysis_info_section.html' %}
+    {% endif %}
+
+    {# Study aggregate maps #}
+    {% if study_aggregate_path %}
+    <h2>Study aggregate maps</h2>
+    <figure>
+        <img src="{{ study_aggregate_path }}" alt="Aggregate maps">
+    </figure>
+    {% endif %}
+
+    {# Group comparisons #}
+    {% if study.group_plots %}
+    <h2>Group Comparisons</h2>
+    <div class="stats-dashboard">
+        {% for key, path in study.group_plots.items() %}
+        {% if path %}
+        <div class="stat-card" style="text-align: center;">
+            <h4>{{ format_metric_name(key) }} Distribution</h4>
+            <img src="{{ path }}" alt="{{ key }} comparison" style="max-width: 100%; height: auto; border-radius: 8px;">
+        </div>
+        {% endif %}
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {# Interactive comparison dashboard #}
+    {% if total_runs >= 3 and interactive_data %}
+    <h2>Interactive Comparison</h2>
+    <p class="section-intro">Explore metrics across all runs. Click on data points to see details.</p>
+    <div class="interactive-dashboard">
+        <div class="dashboard-controls">
+            <div class="control-group">
+                <label for="xMetricSelect">X-Axis Metric</label>
+                <select id="xMetricSelect" onchange="updateChart()">
+                    {% for key, label, _ in comparison_metrics %}
+                    <option value="{{ key }}" {% if key == 'tsnr_median' %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="control-group">
+                <label for="yMetricSelect">Y-Axis Metric</label>
+                <select id="yMetricSelect" onchange="updateChart()">
+                    {% for key, label, _ in comparison_metrics %}
+                    <option value="{{ key }}" {% if key == 'fd_median' %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="control-group">
+                <label for="colorBySelect">Color By</label>
+                <select id="colorBySelect" onchange="updateChart()">
+                    <option value="subject" selected>Subject</option>
+                    <option value="session">Session</option>
+                    <option value="flagged">Flagged Status</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label for="subjectFilter">Filter Subject</label>
+                <select id="subjectFilter" onchange="updateChart()">
+                    <option value="all">All Subjects</option>
+                    {% for subj in interactive_data.subjects %}
+                    <option value="{{ subj }}">{{ subj }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        <div class="chart-container"><canvas id="comparisonChart"></canvas></div>
+        <div id="runDetailsPanel" class="run-details-panel">
+            <h4 id="runDetailsTitle">Click a point to see details</h4>
+            <div id="runDetailsGrid" class="run-details-grid"></div>
+        </div>
+    </div>
+    <script>const qaData = {{ interactive_data|tojson }};</script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    {{ chart_script|safe }}
+    {% endif %}
+
+    {# Outlier section #}
+    {% include 'components/outlier_section.html' %}
+
+    {# Exclusion recommendations #}
+    {% include 'components/exclusion_section.html' %}
+
+    {# Subjects grid #}
+    <h2>Subjects</h2>
+    <div class="subject-grid">
+        {% for subject in study.subjects %}
+        {% set n_runs = subject.sessions|sum_attr('runs') %}
+        <div class="subject-card">
+            {% if subject.aggregate_figure_path %}
+            <img src="{{ relative_asset_path(subject.aggregate_figure_path, output_dir) }}" alt="Aggregate maps for {{ subject.get_identifier() }}">
+            {% endif %}
+            <div class="subject-card-content">
+                <h3>{{ subject.get_identifier() }}</h3>
+                <p><strong>{{ subject.sessions|length }}</strong> session(s)</p>
+                <p><strong>{{ n_runs }}</strong> total run(s)</p>
+                {% if subject_metrics_map[subject.subject] %}
+                {% set subj_metrics = subject_metrics_map[subject.subject] %}
+                <p style="margin-top: 1rem; font-size: 0.9rem;">
+                    {% if 'tsnr_median' in subj_metrics %}
+                    tSNR: {{ format_metric_value(subj_metrics.tsnr_median) }}
+                    {% endif %}
+                    {% if 'fd_median' in subj_metrics %}
+                    | FD: {{ format_metric_value(subj_metrics.fd_median) }}
+                    {% endif %}
+                </p>
+                {% endif %}
+                <a href="sub-{{ subject.subject }}/subject_report.html">View subject report →</a>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+{{ js_study_path|safe }}
+{{ js_threshold_controls_path|safe }}
+{% endblock %}

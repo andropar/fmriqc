@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}fMRI QA Report{% endblock %}</title>
+    <meta name="description" content="fMRI Quality Assurance Report">
+    {{ css_path|safe }}
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+
+    {% block top_buttons %}
+    <div class="search-box" role="search">
+        <span aria-hidden="true">🔍</span>
+        <input type="text" id="searchInput" placeholder="Search..." oninput="{{ search_function }}" aria-label="Search">
+    </div>
+    <button class="dark-mode-toggle" onclick="toggleDarkMode()" aria-label="Toggle dark mode">
+        <span aria-hidden="true">🌙</span> Dark
+    </button>
+    {% endblock %}
+
+    {% block header %}{% endblock %}
+
+    {% block modals %}
+    {# Easter egg modal #}
+    <div class="easter-egg" id="easterEgg">
+        <button class="easter-egg-close" onclick="closeEasterEgg()">×</button>
+        <h2>🧠 You found the secret!</h2>
+        <p>Congratulations! You've unlocked the Konami code easter egg. Your fMRI data is in good hands.</p>
+        <p style="font-size: 2rem; margin: 1rem 0;">🧠 → 🧠 → 🧠</p>
+        <p><em>Keep up the great QA work!</em></p>
+    </div>
+    {% endblock %}
+
+    {% block keyboard_hint %}
+    <div class="keyboard-hint" id="keyboardHint">
+        {% block keyboard_shortcuts %}
+        <strong>Keyboard:</strong> <kbd>/</kbd> Search
+        {% endblock %}
+    </div>
+    {% endblock %}
+
+    {% block content %}{% endblock %}
+
+    {# Common JavaScript #}
+    {{ js_common_path|safe }}
+    {% block extra_scripts %}{% endblock %}
+</body>
+</html>

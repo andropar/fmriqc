@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+
+{% block title %}QA Report - {{ subject.get_identifier() }}{% endblock %}
+
+{% block top_buttons %}
+{{ super() }}
+<button class="export-btn" onclick="openExportModal()" aria-label="Export data">
+    <span aria-hidden="true">📥</span> Export
+</button>
+<button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Open help sidebar">
+    <span aria-hidden="true">ℹ️</span> Help
+</button>
+{% endblock %}
+
+{% block keyboard_shortcuts %}
+<strong>Keyboard:</strong>
+<kbd>J</kbd>/<kbd>K</kbd> Next/prev run | <kbd>Space</kbd> Toggle good/bad | <kbd>/</kbd> Search | <kbd>F</kbd> Next flagged | <kbd>E</kbd> Expand | <kbd>C</kbd> Collapse
+{% endblock %}
+
+{% block modals %}
+{{ super() }}
+{% include "components/export_modal.html" %}
+{% include "components/help_sidebar.html" %}
+{% endblock %}
+
+{% block content %}
+{% include "components/nav_panel.html" %}
+
+<main id="main-content" class="container content-with-nav" role="main">
+    <nav class="breadcrumb" aria-label="Breadcrumb">
+        <a href="../index.html">Study overview</a>
+        <span aria-hidden="true">/</span>
+        <strong aria-current="page">{{ subject.get_identifier() }}</strong>
+    </nav>
+
+    <h1>{{ subject.get_identifier() }} quality report</h1>
+    <p>This page summarises all {{ subject.sessions|length }} session(s) and their runs.</p>
+
+    <div class="view-toggle">
+        <button class="view-btn active" id="viewThumbBtn" onclick="setView('thumb')">Thumbnail view</button>
+        <button class="view-btn" id="viewDetailBtn" onclick="setView('detail')">Detail view</button>
+    </div>
+
+    {# Thumbnail view #}
+    <section id="thumbnail-view">
+        <h2>Thumbnail view (quick scan)</h2>
+        {% if thumb_cards %}
+        <p class="thumb-guide">Visual quick scan of all runs. Look for missing coverage, mask holes, banding/striping, or extreme brightness. Quality indicators: green (good), yellow (warning), red (issues). Click any card to jump to full details.</p>
+
+        <div class="thumb-view-controls">
+            <div class="thumb-filters">
+                <button class="pill active" data-session="all" onclick="filterThumbs('all')">All</button>
+                {% for session in thumb_cards.keys() %}
+                <button class="pill" data-session="{{ session }}" onclick="filterThumbs('{{ session }}')">{{ session }}</button>
+                {% endfor %}
+            </div>
+            <div class="thumb-density-toggle">
+                <button class="density-btn" onclick="setThumbDensity('compact', this)">Compact</button>
+                <button class="density-btn active" onclick="setThumbDensity('comfortable', this)">Comfortable</button>
+                <button class="density-btn" onclick="setThumbDensity('spacious', this)">Spacious</button>
+            </div>
+        </div>
+
+        {% for session, cards in thumb_cards.items() %}
+        <details class="thumb-session" open data-session="{{ session }}">
+            <summary><strong>{{ session }}</strong> <span class="session-meta">{{ cards|length }} runs</span></summary>
+            <div class="thumb-grid" id="thumb-grid-{{ session }}">
+                {% for card in cards %}
+                {% set quality_class = 'good' %}
+                {% if card.flag_class == 'badge-bad' or card.outlier_class == 'badge-bad' %}
+                    {% set quality_class = 'bad' %}
+                {% elif card.flag_class == 'badge-warn' or card.outlier_class == 'badge-warn' or card.fd_class == 'badge-warn' %}
+                    {% set quality_class = 'warn' %}
+                {% endif %}
+                <a class="thumb-card" data-session="{{ session }}" href="#run-details-{{ card.run_id }}" onclick="openDetailAndJump('{{ card.run_id }}'); return false;">
+                    <div class="thumb-image">
+                        <img src="{{ card.img }}" alt="Mean+mask {{ card.run_label }}">
+                        <div class="thumb-quality-indicator {{ quality_class }}"></div>
+                    </div>
+                    <div class="thumb-content">
+                        <div class="thumb-meta">
+                            <span class="thumb-title">{{ card.run_label }}</span>
+                            <span class="badge {{ card.outlier_class }}">{{ card.outlier_text }}</span>
+                        </div>
+                        <div class="thumb-badges">
+                            <span class="badge {{ card.fd_class }}">{{ card.fd_text }}</span>
+                            <span class="badge {{ card.cov_class }}">{{ card.cov_text }}</span>
+                            <span class="badge {{ card.flag_class }}">{{ card.flag_text }}</span>
+                        </div>
+                        <div class="thumb-subtitle">{{ card.subtitle }}</div>
+                    </div>
+                </a>
+                {% endfor %}
+            </div>
+        </details>
+        {% endfor %}
+        {% else %}
+        <p>No thumbnails available for this subject.</p>
+        {% endif %}
+    </section>
+
+    {# Detail view #}
+    <section id="detail-view" class="hidden">
+        <h2>Detail view</h2>
+        <p><a class="thumb-link" href="#" onclick="setView('thumb'); return false;">⬅ Back to thumbnails</a></p>
+
+        <h2>Subject summary</h2>
+        <div class="summary-cards">
+            <div class="card">
+                <h3>Sessions</h3>
+                <div class="value">{{ subject.sessions|length }}</div>
+            </div>
+            <div class="card">
+                <h3>Runs</h3>
+                <div class="value">{{ total_runs }}</div>
+            </div>
+        </div>
+
+        {# Subject-level metrics #}
+        {% if subject_metrics %}
+        <h3>Subject-level metrics</h3>
+        {{ render_metrics_summary(subject_metrics, key_metrics)|safe }}
+        {% endif %}
+
+        {# Cross-session alignment #}
+        {% if alignment_report and subject.sessions|length > 1 %}
+        {% include 'components/alignment_section.html' %}
+        {% endif %}
+
+        {# Sessions and runs #}
+        <h2>Sessions and runs</h2>
+        {% include 'components/detailed_sessions.html' %}
+    </section>
+</main>
+
+{# Embed export data #}
+<script type="application/json" id="qa-export-data">{{ export_data|tojson }}</script>
+{% endblock %}
+
+{% block extra_scripts %}
+{{ js_quality_controls_path|safe }}
+{{ js_navigation_path|safe }}
+{{ js_export_path|safe }}
+{{ js_views_path|safe }}
+{{ js_threshold_controls_path|safe }}
+{% endblock %}
