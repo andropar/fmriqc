@@ -31,8 +31,8 @@ from typing import Dict, List, Tuple
 import numpy as np
 from scipy import stats
 
-from .constants import StatisticalConstants
-from .structures import RunResult, SessionResults
+from fmriqa.core.constants import StatisticalConstants
+from fmriqa.io.structures import RunResult, SessionResults
 
 
 def compute_icc(data: np.ndarray, icc_type: str = "2,1") -> float:

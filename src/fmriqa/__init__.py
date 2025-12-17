@@ -13,7 +13,7 @@ Basic usage:
     run_qa(config)
 
 For non-BIDS data, use a manifest:
-    from fmriqa.manifest import generate_manifest_from_globs
+    from fmriqa import generate_manifest_from_globs, QAConfig, run_qa
 
     manifest = generate_manifest_from_globs(
         bold_pattern="data/**/func/*bold.nii.gz",
@@ -32,16 +32,16 @@ __version__ = "0.1.0"
 def __getattr__(name):
     """Lazy import of QA modules to avoid loading heavy dependencies."""
     if name == "QAConfig":
-        from .config import QAConfig
+        from .orchestration.config import QAConfig
         return QAConfig
     elif name == "run_qa":
-        from .core import run_qa
+        from .orchestration.core import run_qa
         return run_qa
     elif name in ("RunInfo", "RunResult", "SessionResults", "StudyResults", "SubjectResults"):
-        from . import structures
+        from .io import structures
         return getattr(structures, name)
     elif name in ("QAManifest", "generate_manifest_from_globs", "ManifestGenerator", "BIDSEntityExtractor"):
-        from . import manifest
+        from .io import manifest
         return getattr(manifest, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 

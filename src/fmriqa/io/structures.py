@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Tuple, Any
 
 import numpy as np
 
-from .utils import split_dict_arrays, coerce_scalar
+from fmriqa.utils import split_dict_arrays, coerce_scalar
 
 
 @dataclass

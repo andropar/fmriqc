@@ -11,7 +11,7 @@ from .utils import format_run_label, escape_html, relative_asset_path
 from .badge_helpers import get_outlier_badge, get_fd_badge, get_coverage_badge, get_flag_badge
 
 if TYPE_CHECKING:
-    from ..structures import RunResult, SubjectResults
+    from fmriqa.io.structures import RunResult, SubjectResults
 
 
 def ensure_thumbnail(run: "RunResult", output_dir: Path) -> Optional[Path]:
@@ -19,7 +19,7 @@ def ensure_thumbnail(run: "RunResult", output_dir: Path) -> Optional[Path]:
     Ensure a thumbnail image exists for this run.
     Prefers existing thumbnails; otherwise generates one from mean map + mask.
     """
-    from ..visualization import create_run_thumbnail
+    from fmriqa.visualization.visualization import create_run_thumbnail
 
     thumb_candidates: List[Path] = []
     if run.thumbnail_path is not None:

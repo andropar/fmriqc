@@ -6,15 +6,15 @@ import nibabel as nib
 from pathlib import Path
 from typing import Dict, Optional, Any, Tuple, TYPE_CHECKING, List
 
-from .config import QAConfig
-from .structures import RunInfo, RunResult
+from fmriqa.orchestration.config import QAConfig
+from fmriqa.io.structures import RunInfo, RunResult
 from .constants import (
     StatisticalConstants,
     MotionConstants,
     IOConstants,
     QualityThresholds,
 )
-from .io import (
+from fmriqa.io.io import (
     find_mask_path,
     locate_motion_params,
     find_events_file,
@@ -26,12 +26,12 @@ from .io import (
 )
 
 if TYPE_CHECKING:
-    from .core import ManifestRunContext
+    from fmriqa.orchestration.orchestration import ManifestRunContext
 from .metrics import (compute_fd, compute_dvars_standardized, compute_slice_quality,
                       assess_brain_mask_quality, detect_physiological_noise,
                       validate_events_file, assess_sdc_quality, compute_smoothness,
                       compute_ar1, detrend_poly, robust_z, compute_gcor)
-from .visualization import create_run_figure, create_carpetplot, create_run_thumbnail
+from fmriqa.visualization.visualization import create_run_figure, create_carpetplot, create_run_thumbnail
 
 
 # ============================================================================

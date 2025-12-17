@@ -12,8 +12,8 @@ from typing import Dict, List, Optional, Tuple, Any, Callable
 
 import numpy as np
 
-from .structures import RunResult, SessionResults, StudyResults
-from .constants import STRINGENCY_PROFILES, QualityThresholds
+from fmriqa.io.structures import RunResult, SessionResults, StudyResults
+from fmriqa.core.constants import STRINGENCY_PROFILES, QualityThresholds
 
 
 class ExclusionStringency(Enum):

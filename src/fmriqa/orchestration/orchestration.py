@@ -20,10 +20,10 @@ from joblib import Parallel, delayed
 from tqdm import tqdm
 
 from .config import QAConfig
-from .io import QACache, load_default_derivatives
-from .manifest import QAManifest
-from .processing import process_single_run
-from .structures import RunResult, SessionResults, StudyResults, SubjectResults
+from fmriqa.io.io import QACache, load_default_derivatives
+from fmriqa.io.manifest import QAManifest
+from fmriqa.core.processing import process_single_run
+from fmriqa.io.structures import RunResult, SessionResults, StudyResults, SubjectResults
 
 
 @dataclass

@@ -8,8 +8,8 @@ import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
 
-from .constants import PlotStyle, MotionConstants
-from .structures import RunInfo, StudyResults
+from fmriqa.core.constants import PlotStyle, MotionConstants
+from fmriqa.io.structures import RunInfo, StudyResults
 
 
 def _mid_slices(data: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:

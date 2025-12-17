@@ -10,10 +10,10 @@ from typing import Dict, List, Optional, Tuple, Any
 import nibabel as nib
 import numpy as np
 
-from .config import QAConfig
-from .constants import IOConstants
+from fmriqa.orchestration.config import QAConfig
+from fmriqa.core.constants import IOConstants
 from .structures import RunInfo, RunResult
-from .utils import split_dict_arrays as _split_dict_arrays, coerce_scalar as _coerce_scalar
+from fmriqa.utils import split_dict_arrays as _split_dict_arrays, coerce_scalar as _coerce_scalar
 
 
 def extract_entities(file_name: str) -> Dict[str, Optional[str]]:

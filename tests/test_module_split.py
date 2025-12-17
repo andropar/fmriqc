@@ -6,7 +6,7 @@ import pytest
 def test_backward_compatible_imports():
     """Test that old imports from utils.py still work."""
     # These should all work via re-exports in utils.py
-    from fmriqa.report_components.utils import (
+    from fmriqa.reporting.report_components.utils import (
         format_run_label,
         format_metric_name,
         format_metric_value,
@@ -36,7 +36,7 @@ def test_backward_compatible_imports():
 def test_new_module_imports():
     """Test that new focused module imports work."""
     # Test formatting module
-    from fmriqa.report_components.formatting import (
+    from fmriqa.reporting.report_components.formatting import (
         format_run_label,
         format_metric_name,
         format_metric_value,
@@ -44,7 +44,7 @@ def test_new_module_imports():
     assert format_run_label("1") == "run-01"
 
     # Test escaping module
-    from fmriqa.report_components.escaping import (
+    from fmriqa.reporting.report_components.escaping import (
         escape_html,
         escape_js_string,
         relative_asset_path,
@@ -52,7 +52,7 @@ def test_new_module_imports():
     assert escape_html("<script>") == "&lt;script&gt;"
 
     # Test aggregation module
-    from fmriqa.report_components.aggregation import (
+    from fmriqa.reporting.report_components.aggregation import (
         compute_session_metrics,
         compute_subject_metrics,
         _safe_float,
@@ -61,21 +61,21 @@ def test_new_module_imports():
     assert _safe_float(3.14) == 3.14
 
     # Test serialization module
-    from fmriqa.report_components.serialization import (
+    from fmriqa.reporting.report_components.serialization import (
         serialize_subject_for_export,
         serialize_study_for_interactive,
     )
     assert callable(serialize_subject_for_export)
 
     # Test metric_resolver module
-    from fmriqa.report_components.metric_resolver import (
+    from fmriqa.reporting.report_components.metric_resolver import (
         get_metric_tooltip,
         get_metric_standard,
     )
     assert callable(get_metric_tooltip)
 
     # Test numeric_constants module
-    from fmriqa.report_components.numeric_constants import (
+    from fmriqa.reporting.report_components.numeric_constants import (
         MAD_TO_STD_FACTOR,
         EPSILON,
         Z_SCORE_THRESHOLD,
@@ -95,7 +95,7 @@ def test_new_module_imports():
 
 def test_package_level_imports():
     """Test that package-level imports still work."""
-    from fmriqa.report_components import (
+    from fmriqa.reporting.report_components import (
         format_run_label,
         format_metric_name,
         escape_html,
@@ -111,8 +111,8 @@ def test_package_level_imports():
 
 def test_imports_are_identical():
     """Test that imports from old and new locations are identical."""
-    from fmriqa.report_components.utils import format_run_label as old_format
-    from fmriqa.report_components.formatting import format_run_label as new_format
+    from fmriqa.reporting.report_components.utils import format_run_label as old_format
+    from fmriqa.reporting.report_components.formatting import format_run_label as new_format
 
     # Should be the exact same function object
     assert old_format is new_format
@@ -122,7 +122,7 @@ def test_imports_are_identical():
 
 def test_numeric_constants_values():
     """Test that numeric constants have expected values."""
-    from fmriqa.report_components.numeric_constants import (
+    from fmriqa.reporting.report_components.numeric_constants import (
         MAD_TO_STD_FACTOR,
         EPSILON,
         Z_SCORE_THRESHOLD,

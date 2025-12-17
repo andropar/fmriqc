@@ -9,16 +9,16 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from .config import QAConfig
-from .exclusions import (
+from fmriqa.analysis.exclusions import (
     ExclusionStringency,
     export_censor_files,
     export_exclusion_list,
     generate_exclusion_report,
     generate_methods_text,
 )
-from .outliers import generate_outlier_report
-from .structures import RunResult, StudyResults
-from .visualization import create_subject_comparison_plot
+from fmriqa.analysis.outliers import generate_outlier_report
+from fmriqa.io.structures import RunResult, StudyResults
+from fmriqa.visualization.visualization import create_subject_comparison_plot
 
 
 def detect_outliers_for_study(

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Optional
 
 from .config import QAConfig
-from .constants import QualityThresholds, StatisticalConstants
+from fmriqa.core.constants import QualityThresholds, StatisticalConstants
 
 
 def create_argument_parser() -> argparse.ArgumentParser:

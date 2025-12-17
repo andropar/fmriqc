@@ -6,8 +6,8 @@ from abc import ABC, abstractmethod
 from scipy import stats
 from scipy.spatial.distance import mahalanobis
 
-from .structures import RunResult, SessionResults
-from .constants import StatisticalConstants
+from fmriqa.io.structures import RunResult, SessionResults
+from fmriqa.core.constants import StatisticalConstants
 
 
 # === COVARIANCE ESTIMATION STRATEGIES ===

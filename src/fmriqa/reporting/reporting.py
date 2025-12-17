@@ -11,7 +11,7 @@ from .report_templates import (
     render_subject_report,
     render_study_report,
 )
-from .structures import StudyResults, SubjectResults, SessionResults, RunResult
+from fmriqa.io.structures import StudyResults, SubjectResults, SessionResults, RunResult
 
 # Import utilities from report_components
 from .report_components import (

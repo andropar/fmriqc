@@ -15,10 +15,10 @@ import nibabel as nib
 import numpy as np
 from tqdm import tqdm
 
-from .consistency import generate_consistency_report
-from .reporting import generate_study_report, generate_subject_report
-from .structures import RunResult, StudyResults
-from .visualization import create_aggregate_maps_figure
+from fmriqa.analysis.consistency import generate_consistency_report
+from fmriqa.reporting.reporting import generate_study_report, generate_subject_report
+from fmriqa.io.structures import RunResult, StudyResults
+from fmriqa.visualization.visualization import create_aggregate_maps_figure
 
 
 def compute_average_maps(

@@ -22,7 +22,9 @@ from .report_components.constants import FLAG_DESCRIPTIONS
 
 def get_package_dir() -> Path:
     """Get the package root directory."""
-    return Path(__file__).parent
+    # This file is at src/fmriqa/reporting/report_templates.py
+    # We need to get src/fmriqa (parent of parent)
+    return Path(__file__).parent.parent
 
 
 def create_template_environment() -> Environment:

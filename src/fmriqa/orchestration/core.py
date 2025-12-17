@@ -17,7 +17,7 @@ from .group_analysis import (
     generate_exclusions_for_study,
     generate_group_plots,
 )
-from .io import QACache, load_all_results_from_previous_run
+from fmriqa.io.io import QACache, load_all_results_from_previous_run
 from .orchestration import (
     build_analysis_metadata,
     compute_overall_metrics,
@@ -26,8 +26,8 @@ from .orchestration import (
     process_runs,
     setup_output_and_cache,
 )
-from .reporting import generate_study_report
-from .structures import RunResult
+from fmriqa.reporting.reporting import generate_study_report
+from fmriqa.io.structures import RunResult
 
 
 def run_qa(config: QAConfig) -> int:
