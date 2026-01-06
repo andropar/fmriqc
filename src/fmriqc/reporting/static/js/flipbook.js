@@ -9,11 +9,16 @@ let currentRunId = null;
  */
 function openRunDetail(runId) {
     currentRunId = runId;
-    const run = subjectData.runs.find(r => r.id === runId);
+    const runs = subjectData.runs;
+    const run = runs.find(r => r.id === runId);
     if (!run) return;
 
     // Update modal title
     document.getElementById('detail-modal-title').textContent = run.id;
+
+    // Update nav button state
+    const currentIndex = runs.findIndex(r => r.id === runId);
+    updateNavButtonState(currentIndex, runs.length);
 
     // Update review buttons
     updateReviewButtons(runId);
@@ -202,7 +207,57 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
+/**
+ * Navigate to previous/next run in modal
+ */
+function navigateRunModal(direction) {
+    if (!currentRunId || !subjectData || !subjectData.runs) return;
+
+    const runs = subjectData.runs;
+    const currentIndex = runs.findIndex(r => r.id === currentRunId);
+    if (currentIndex === -1) return;
+
+    const newIndex = currentIndex + direction;
+    if (newIndex >= 0 && newIndex < runs.length) {
+        openRunDetail(runs[newIndex].id);
+        updateNavButtonState(newIndex, runs.length);
+    }
+}
+
+/**
+ * Update nav button disabled state
+ */
+function updateNavButtonState(index, total) {
+    const buttons = document.querySelectorAll('.run-nav-buttons .run-nav-btn');
+    if (buttons.length >= 2) {
+        buttons[0].disabled = index <= 0;
+        buttons[1].disabled = index >= total - 1;
+    }
+}
+
+// Keyboard navigation for modal
+document.addEventListener('keydown', function(e) {
+    // Check if modal is open
+    const modal = document.getElementById('detail-modal');
+    if (!modal || !modal.classList.contains('active')) return;
+
+    // Don't capture if typing in input
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+
+    if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        navigateRunModal(-1);
+    } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        navigateRunModal(1);
+    } else if (e.key === 'Escape') {
+        e.preventDefault();
+        closeModal('detail-modal');
+    }
+});
+
 // Export
 window.openRunDetail = openRunDetail;
 window.switchFlipbookMap = switchFlipbookMap;
 window.saveNotes = saveNotes;
+window.navigateRunModal = navigateRunModal;

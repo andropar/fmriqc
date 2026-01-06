@@ -49,7 +49,7 @@ let activeThresholds = { ...DEFAULT_THRESHOLDS };
  */
 function initThresholdControls() {
     // Load saved thresholds from localStorage
-    const saved = localStorage.getItem('fmriqa_thresholds');
+    const saved = localStorage.getItem('fmriqc_thresholds');
     if (saved) {
         try {
             const parsed = JSON.parse(saved);
@@ -64,6 +64,17 @@ function initThresholdControls() {
 
     // Set up UI event handlers
     setupThresholdUI();
+
+    // Refresh visualizations with loaded thresholds (after a short delay to ensure DOM is ready)
+    setTimeout(() => {
+        if (typeof updateDistributions === 'function') {
+            updateDistributions();
+        }
+        if (typeof updateScatterPlot === 'function') {
+            updateScatterPlot();
+        }
+        recalculateQualitySummary();
+    }, 100);
 }
 
 /**
@@ -191,7 +202,7 @@ function applyAndRefresh() {
     });
 
     // Save to localStorage
-    localStorage.setItem('fmriqa_thresholds', JSON.stringify(activeThresholds));
+    localStorage.setItem('fmriqc_thresholds', JSON.stringify(activeThresholds));
 
     // Apply to metricInfo
     applyThresholds();
@@ -219,7 +230,7 @@ function applyAndRefresh() {
  */
 function resetThresholds() {
     activeThresholds = { ...DEFAULT_THRESHOLDS };
-    localStorage.removeItem('fmriqa_thresholds');
+    localStorage.removeItem('fmriqc_thresholds');
     populateThresholdInputsById();
     applyPreset('moderate');
 }

@@ -31,9 +31,10 @@ function createViolinPlot(container, data, config) {
 
     const svg = d3.select(container)
         .append('svg')
-        .attr('width', width)
+        .attr('width', '100%')
         .attr('height', height)
-        .style('overflow', 'visible');
+        .attr('viewBox', `0 0 ${width} ${height}`)
+        .attr('preserveAspectRatio', 'xMidYMid meet');
 
     const g = svg.append('g')
         .attr('transform', `translate(${margin.left},${margin.top})`);
@@ -752,9 +753,10 @@ function createGroupedBoxPlot(container, runs, config) {
 
     const svg = d3.select(container)
         .append('svg')
-        .attr('width', width)
+        .attr('width', '100%')
         .attr('height', height)
-        .style('overflow', 'visible');
+        .attr('viewBox', `0 0 ${width} ${height}`)
+        .attr('preserveAspectRatio', 'xMidYMid meet');
 
     const g = svg.append('g')
         .attr('transform', `translate(${margin.left},${margin.top})`);

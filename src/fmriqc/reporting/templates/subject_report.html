@@ -118,6 +118,10 @@
     <div class="modal" style="width: 900px;">
         <div class="modal-header">
             <div style="display: flex; align-items: center; gap: 1rem;">
+                <div class="run-nav-buttons" style="display: flex; gap: 4px;">
+                    <button class="run-nav-btn" onclick="navigateRunModal(-1)" title="Previous run (←)">‹</button>
+                    <button class="run-nav-btn" onclick="navigateRunModal(1)" title="Next run (→)">›</button>
+                </div>
                 <h2 id="detail-modal-title">Run Details</h2>
                 <div class="review-toggle">
                     <button id="modal-good-btn" class="review-btn good-btn" onclick="setReviewStatus(currentRunId, 'good')">✓ Good</button>
