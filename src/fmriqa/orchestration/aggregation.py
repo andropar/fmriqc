@@ -16,7 +16,11 @@ import numpy as np
 from tqdm import tqdm
 
 from fmriqa.analysis.consistency import generate_consistency_report
-from fmriqa.reporting.reporting import generate_study_report, generate_subject_report
+from fmriqa.reporting import (
+    generate_study_report,
+    generate_subject_report,
+    compute_metric_distributions,
+)
 from fmriqa.io.structures import RunResult, StudyResults
 from fmriqa.visualization.visualization import create_aggregate_maps_figure
 
@@ -380,6 +384,10 @@ def generate_hierarchical_reports(
     """
     print("Generating hierarchical reports...")
 
+    # Compute metric distributions once for the whole study (Phase 5)
+    # This is used for percentile context in both study and subject reports
+    metric_distributions = compute_metric_distributions(study)
+
     # Generate reports for each level
     for subject in tqdm(study.subjects, desc="Subjects"):
         subject_dir = output_dir / f"sub-{subject.subject}"
@@ -454,7 +462,7 @@ def generate_hierarchical_reports(
                         run.carpetplot_path = new_path
 
         # Generate subject report
-        generate_subject_report(subject, subject_dir, session_consistency)
+        generate_subject_report(subject, subject_dir)
 
     # Generate study report
-    generate_study_report(study, output_dir, study_aggregate_path)
+    generate_study_report(study, output_dir)

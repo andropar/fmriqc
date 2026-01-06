@@ -113,3 +113,100 @@ HIDDEN_METRICS = {
     "global_mean",
     "mask_volume_fraction",
 }
+
+# Metric thresholds for quality classification (Phase 5)
+# Each metric has bands for excellent, good, acceptable, and poor quality
+# 'direction' indicates whether higher or lower values are better
+METRIC_THRESHOLDS = {
+    "tsnr_median": {
+        "excellent": 50,
+        "good": 40,
+        "acceptable": 30,
+        "poor": 20,
+        "direction": "higher",  # higher is better
+    },
+    "fd_median": {
+        "excellent": 0.2,
+        "good": 0.35,
+        "acceptable": 0.5,
+        "poor": 0.9,
+        "direction": "lower",  # lower is better
+    },
+    "dvars_std_median": {
+        "excellent": 1.0,
+        "good": 1.2,
+        "acceptable": 1.5,
+        "poor": 2.0,
+        "direction": "lower",
+    },
+    "dvars_percent_above": {
+        "excellent": 2.0,
+        "good": 5.0,
+        "acceptable": 10.0,
+        "poor": 20.0,
+        "direction": "lower",
+    },
+    "outlier_percent_above": {
+        "excellent": 1.0,
+        "good": 2.0,
+        "acceptable": 5.0,
+        "poor": 10.0,
+        "direction": "lower",
+    },
+    "fd_percent_above": {
+        "excellent": 2.0,
+        "good": 5.0,
+        "acceptable": 10.0,
+        "poor": 20.0,
+        "direction": "lower",
+    },
+    "coverage": {
+        "excellent": 0.95,
+        "good": 0.90,
+        "acceptable": 0.85,
+        "poor": 0.75,
+        "direction": "higher",
+    },
+    "gcor": {
+        "excellent": 0.15,
+        "good": 0.10,
+        "acceptable": 0.05,
+        "poor": 0.02,
+        "direction": "higher",
+    },
+    "ar1_median": {
+        "excellent": 0.2,
+        "good": 0.15,
+        "acceptable": 0.10,
+        "poor": 0.05,
+        "direction": "higher",
+    },
+    "slice_outlier_max": {
+        "excellent": 0.05,
+        "good": 0.10,
+        "acceptable": 0.15,
+        "poor": 0.25,
+        "direction": "lower",
+    },
+    "physiological_power_ratio": {
+        "excellent": 0.15,
+        "good": 0.25,
+        "acceptable": 0.35,
+        "poor": 0.50,
+        "direction": "lower",
+    },
+    "n_hyperintense_slices": {
+        "excellent": 0,
+        "good": 1,
+        "acceptable": 3,
+        "poor": 5,
+        "direction": "lower",
+    },
+    "signal_outside_mask_ratio": {
+        "excellent": 0.05,
+        "good": 0.10,
+        "acceptable": 0.15,
+        "poor": 0.25,
+        "direction": "lower",
+    },
+}

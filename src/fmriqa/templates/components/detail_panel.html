@@ -1,0 +1,151 @@
+{# Two-panel detail view: Left navigation + Right timeline visualization #}
+
+<div class="detail-panel-container">
+    {# Left Panel - Session/Run Navigation #}
+    <div class="detail-nav-panel">
+        <div class="detail-nav-header">
+            <h3>Sessions & Runs</h3>
+        </div>
+        <div class="detail-nav-content">
+            {% for session in subject.sessions %}
+            {% set session_label = 'ses-' ~ session.session %}
+            {% set flagged_count = session.runs | count_flagged %}
+            {% set session_id = subject.get_identifier() ~ '_' ~ session_label %}
+
+            <div class="nav-session" data-session="{{ session_label }}" data-session-id="{{ session_id }}">
+                <div class="nav-session-header" onclick="toggleNavSession('{{ session_id }}')">
+                    <div>
+                        <span class="nav-session-title">{{ session_label }}</span>
+                        <span class="nav-session-meta">
+                            {{ session.runs|length }} runs
+                            {% if flagged_count > 0 %}
+                            · {{ flagged_count }} flagged
+                            {% endif %}
+                        </span>
+                    </div>
+                    <span class="nav-session-toggle">▶</span>
+                </div>
+                <div class="nav-runs">
+                    {% for run in session.runs %}
+                    {% set run_label = run.info.run | format_run_label %}
+                    {% set run_id = session_id ~ '_' ~ run_label %}
+                    {% set flags = run.flags.values() | sum %}
+                    {% set run_quality = 'good' if flags == 0 else ('warn' if flags <= 2 else 'bad') %}
+                    {% set thumb_src = run.thumbnail_path | relative_asset(output_dir) if run.thumbnail_path else '' %}
+                    {% set series_src = run.series_path | relative_asset(output_dir) if run.series_path else '' %}
+                    {% set carpet_src = run.carpetplot_path | relative_asset(output_dir) if run.carpetplot_path else '' %}
+
+                    <div class="nav-run"
+                         data-run-id="{{ run_id }}"
+                         data-session="{{ session_label }}"
+                         data-series-path="{{ series_src }}"
+                         data-carpet-path="{{ carpet_src }}"
+                         onclick="selectRun('{{ run_id }}', '{{ session_id }}')">
+                        {% if thumb_src %}
+                        <img class="nav-run-thumb" src="{{ thumb_src }}" alt="{{ run_label }}">
+                        {% else %}
+                        <div class="nav-run-thumb" style="background: var(--paper-alt);"></div>
+                        {% endif %}
+                        <div class="nav-run-info">
+                            <div class="nav-run-label">{{ run_label }}</div>
+                            <div class="nav-run-metrics">
+                                {% if run.metrics.fd_median is defined %}
+                                <span>FD: {{ "%.2f"|format(run.metrics.fd_median) }}</span>
+                                {% endif %}
+                                {% if run.metrics.tsnr_median is defined %}
+                                <span>tSNR: {{ "%.0f"|format(run.metrics.tsnr_median) }}</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="nav-run-status {{ run_quality }}"></div>
+                        {% if carpet_src %}
+                        <button class="nav-run-carpet-btn" onclick="event.stopPropagation(); openCarpetModal('{{ run_id }}')" title="View carpet plot">
+                            📊
+                        </button>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    {# Right Panel - Timeline Visualization #}
+    <div class="detail-viz-panel">
+        <div class="detail-viz-header">
+            <span class="detail-viz-title" id="viz-title">Select a session to view metrics</span>
+            <div class="detail-viz-controls">
+                <button class="metric-toggle active" data-metric="fd" onclick="toggleMetric('fd')">
+                    <span class="metric-toggle-dot" style="background: #e74c3c;"></span>
+                    FD
+                </button>
+                <button class="metric-toggle active" data-metric="dvars_std" onclick="toggleMetric('dvars_std')">
+                    <span class="metric-toggle-dot" style="background: #3498db;"></span>
+                    DVARS
+                </button>
+                <button class="metric-toggle" data-metric="global_signal" onclick="toggleMetric('global_signal')">
+                    <span class="metric-toggle-dot" style="background: #9b59b6;"></span>
+                    Global
+                </button>
+            </div>
+        </div>
+        <div class="detail-viz-content">
+            <div class="timeline-container" id="timeline-container">
+                <div class="detail-viz-empty" id="viz-empty">
+                    <div class="detail-viz-empty-icon">📊</div>
+                    <p>Expand a session to see per-volume metrics,<br>or click a run to see its detailed timeline.</p>
+                </div>
+                <svg id="timeline-svg" style="display: none;"></svg>
+            </div>
+            <div class="timeline-tooltip" id="timeline-tooltip"></div>
+        </div>
+    </div>
+</div>
+
+{# Carpet Plot Modal #}
+<div class="carpet-modal" id="carpet-modal" onclick="closeCarpetModal(event)">
+    <div class="carpet-modal-content" onclick="event.stopPropagation()">
+        <div class="carpet-modal-header">
+            <h3 id="carpet-modal-title">Carpet Plot</h3>
+            <button class="carpet-modal-close" onclick="closeCarpetModal()">&times;</button>
+        </div>
+        <div class="carpet-modal-body">
+            <img id="carpet-modal-img" src="" alt="Carpet plot">
+        </div>
+    </div>
+</div>
+
+{# Embed series paths for JavaScript #}
+<script type="application/json" id="series-paths-data">
+{
+    "sessions": [
+        {% for session in subject.sessions %}
+        {
+            "session_id": "{{ subject.get_identifier() }}_ses-{{ session.session }}",
+            "session_label": "ses-{{ session.session }}",
+            "runs": [
+                {% for run in session.runs %}
+                {
+                    "run_id": "{{ subject.get_identifier() }}_ses-{{ session.session }}_{{ run.info.run | format_run_label }}",
+                    "run_label": "{{ run.info.run | format_run_label }}",
+                    "series_path": "{{ run.series_path | relative_asset(output_dir) if run.series_path else '' }}",
+                    "carpet_path": "{{ run.carpetplot_path | relative_asset(output_dir) if run.carpetplot_path else '' }}",
+                    "metrics": {
+                        "fd_median": {{ run.metrics.fd_median | default(0) }},
+                        "tsnr_median": {{ run.metrics.tsnr_median | default(0) }},
+                        "dvars_std_median": {{ run.metrics.dvars_std_median | default(0) }}
+                    },
+                    "flags": {{ run.flags | tojson }}
+                }{% if not loop.last %},{% endif %}
+                {% endfor %}
+            ]
+        }{% if not loop.last %},{% endif %}
+        {% endfor %}
+    ],
+    "thresholds": {
+        "fd": 0.5,
+        "dvars_std": 1.5
+    }
+}
+</script>

@@ -1,0 +1,15 @@
+name: "ds001419 QA Test"
+description: "Simple QA run on ds001419 dataset"
+base_path: "ds001419"
+
+subjects:
+  - id: "sub-01"
+    sessions:
+      - id: "ses-mri"
+        runs:
+          - bold: "sub-01/func/sub-01_task-imagery_run-01_bold.nii.gz"
+            label: "run-01"
+          - bold: "sub-01/func/sub-01_task-imagery_run-02_bold.nii.gz"
+            label: "run-02"
+          - bold: "sub-01/func/sub-01_task-imagery_run-03_bold.nii.gz"
+            label: "run-03"

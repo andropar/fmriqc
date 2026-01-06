@@ -9,7 +9,15 @@ import argparse
 from pathlib import Path
 from typing import Optional
 
-from .config import QAConfig
+from .config import (
+    QAConfig,
+    PathConfig,
+    ThresholdConfig,
+    ProcessingConfig,
+    VisualizationConfig,
+    AnalysisConfig,
+    ReportingConfig,
+)
 from fmriqa.core.constants import QualityThresholds, StatisticalConstants
 
 
@@ -131,6 +139,16 @@ Examples:
         action="store_true",
         help="Force reprocessing of all runs (ignore cache)"
     )
+    processing_group.add_argument(
+        "--generate-motion",
+        action="store_true",
+        help="Generate motion parameters using FSL mcflirt when missing (requires Singularity)"
+    )
+    processing_group.add_argument(
+        "--fsl-container",
+        type=Path,
+        help="Path to FSL Singularity container (auto-downloads if not specified)"
+    )
 
     # Quality thresholds
     threshold_group = parser.add_argument_group('Quality Thresholds')
@@ -238,9 +256,22 @@ def parse_and_validate_args(args: Optional[list] = None) -> QAConfig:
     if parsed_args.manifest:
         parsed_args.data_source = "manifest"
 
+    # Check if manifest has embedded config
+    manifest_config = None
+    if parsed_args.manifest and Path(parsed_args.manifest).exists():
+        from fmriqa.io.manifest import QAManifest
+        manifest = QAManifest.from_file(Path(parsed_args.manifest))
+        if manifest.qa_config:
+            # Load config from embedded qa_config in manifest
+            manifest_config = QAConfig.from_dict(manifest.qa_config)
+
     # Load or create config
+    # Priority order: explicit --config > manifest embedded config > CLI args
     if parsed_args.config and Path(parsed_args.config).exists():
         config = QAConfig.from_yaml(Path(parsed_args.config))
+    elif manifest_config is not None:
+        # Use embedded config from manifest
+        config = manifest_config
 
         # Override config with command-line args if provided
         if parsed_args.derivatives_dir:
@@ -289,32 +320,50 @@ def parse_and_validate_args(args: Optional[list] = None) -> QAConfig:
             config.reports_only = Path(parsed_args.reports_only)
         if parsed_args.dry_run:
             config.dry_run = True
+        if parsed_args.generate_motion:
+            config.generate_motion = True
+        if parsed_args.fsl_container:
+            config.fsl_container_path = Path(parsed_args.fsl_container)
     else:
-        # Create config from command-line args
+        # Create config from command-line args using hierarchical structure
         config = QAConfig(
-            derivatives_dir=Path(parsed_args.derivatives_dir) if parsed_args.derivatives_dir else None,
-            bids_root=Path(parsed_args.bids_root) if parsed_args.bids_root else None,
-            manifest_path=Path(parsed_args.manifest) if parsed_args.manifest else None,
-            data_source=parsed_args.data_source if parsed_args.data_source is not None else "finalinterp",
-            glmsingle_input_source=parsed_args.glmsingle_input_source,
-            glob_pattern=parsed_args.glob_pattern,
-            output_dir_name=parsed_args.output_dir_name,
-            target_echo=parsed_args.target_echo,
-            n_jobs=parsed_args.n_jobs,
-            dvars_z_threshold=parsed_args.dvars_z_threshold,
-            fd_threshold=parsed_args.fd_threshold,
-            fd_median_threshold=parsed_args.fd_median_threshold,
-            outlier_threshold=parsed_args.outlier_threshold,
-            tsnr_drop_threshold=parsed_args.tsnr_drop_threshold,
-            outlier_metric_threshold=parsed_args.outlier_metric_threshold,
-            exclusion_stringency=parsed_args.exclusion_stringency,
-            organize_hierarchical=not parsed_args.no_hierarchical,
-            generate_carpetplots=not parsed_args.no_carpetplots,
-            use_cache=not parsed_args.no_cache,
-            force_reprocess=parsed_args.force_reprocess,
-            reuse_run_dir=Path(parsed_args.reuse_from) if parsed_args.reuse_from else None,
-            reports_only=Path(parsed_args.reports_only) if parsed_args.reports_only else None,
-            dry_run=parsed_args.dry_run,
+            paths=PathConfig(
+                derivatives_dir=Path(parsed_args.derivatives_dir) if parsed_args.derivatives_dir else None,
+                bids_root=Path(parsed_args.bids_root) if parsed_args.bids_root else None,
+                manifest_path=Path(parsed_args.manifest) if parsed_args.manifest else None,
+                output_dir_name=parsed_args.output_dir_name,
+                reuse_run_dir=Path(parsed_args.reuse_from) if parsed_args.reuse_from else None,
+                reports_only=Path(parsed_args.reports_only) if parsed_args.reports_only else None,
+            ),
+            thresholds=ThresholdConfig(
+                dvars_z_threshold=parsed_args.dvars_z_threshold,
+                fd_threshold=parsed_args.fd_threshold,
+                fd_median_threshold=parsed_args.fd_median_threshold,
+                outlier_threshold=parsed_args.outlier_threshold,
+                tsnr_drop_threshold=parsed_args.tsnr_drop_threshold,
+                outlier_metric_threshold=parsed_args.outlier_metric_threshold,
+            ),
+            processing=ProcessingConfig(
+                n_jobs=parsed_args.n_jobs,
+                target_echo=parsed_args.target_echo,
+                use_cache=not parsed_args.no_cache,
+                force_reprocess=parsed_args.force_reprocess,
+                dry_run=parsed_args.dry_run,
+                data_source=parsed_args.data_source if parsed_args.data_source is not None else "finalinterp",
+                glmsingle_input_source=parsed_args.glmsingle_input_source,
+                glob_pattern=parsed_args.glob_pattern,
+                generate_motion=parsed_args.generate_motion,
+                fsl_container_path=parsed_args.fsl_container,
+            ),
+            visualization=VisualizationConfig(
+                generate_carpetplots=not parsed_args.no_carpetplots,
+            ),
+            analysis=AnalysisConfig(
+                exclusion_stringency=parsed_args.exclusion_stringency,
+            ),
+            reporting=ReportingConfig(
+                organize_hierarchical=not parsed_args.no_hierarchical,
+            ),
         )
 
     return config

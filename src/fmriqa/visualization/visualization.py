@@ -197,26 +197,56 @@ def create_run_thumbnail(
     mean_img: np.ndarray,
     mask: np.ndarray,
     output_path: Path,
-    figsize: Tuple[float, float] = (4.5, 1.8),
+    figsize: Tuple[float, float] = (1.5, 1.5),
+    n_slices: int = 3,
 ) -> Path:
     """
-    Create a compact 3-view thumbnail (sagittal/coronal/axial) of mean BOLD with mask overlay.
-    Mask is shown as semi-transparent fill plus contour so holes are visible.
+    Create a compact axial-only thumbnail with mask overlay for table rows.
+
+    Shows a small grid of axial slices with the mask contour overlaid,
+    suitable for quick visual identification in a table cell.
+
+    Parameters
+    ----------
+    mean_img : np.ndarray
+        3D mean BOLD volume
+    mask : np.ndarray
+        3D brain mask
+    output_path : Path
+        Output file path
+    figsize : tuple
+        Figure size (small for table use)
+    n_slices : int
+        Number of axial slices to show
     """
     mask_bool = mask.astype(bool)
-    cx, cy, cz = _center_slices_from_mask(mask_bool)
 
-    slices = [
-        (mean_img[cx, :, :], mask_bool[cx, :, :], "Sagittal"),
-        (mean_img[:, cy, :], mask_bool[:, cy, :], "Coronal"),
-        (mean_img[:, :, cz], mask_bool[:, :, cz], "Axial"),
-    ]
+    # Get evenly spaced axial slice indices
+    z_dim = mean_img.shape[2]
+    margin = z_dim // 6
+    usable = z_dim - 2 * margin
+    step = usable // (n_slices + 1)
+    z_indices = [margin + step * (i + 1) for i in range(n_slices)]
 
-    fig, axes = plt.subplots(1, 3, figsize=figsize, constrained_layout=True)
-    for ax, (img_slice, mask_slice, title) in zip(axes, slices):
-        _plot_slice_with_mask(ax, img_slice, mask_slice, title)
+    # Create a horizontal strip of axial slices
+    fig, axes = plt.subplots(1, n_slices, figsize=figsize)
+    if n_slices == 1:
+        axes = [axes]
 
-    fig.savefig(output_path, dpi=100)
+    for ax, z in zip(axes, z_indices):
+        img_slice = np.rot90(mean_img[:, :, z])
+        mask_slice = np.rot90(mask_bool[:, :, z])
+
+        ax.imshow(img_slice, cmap='gray', interpolation='nearest')
+        # Add mask contour
+        try:
+            ax.contour(mask_slice, levels=[0.5], colors='cyan', linewidths=0.5)
+        except Exception:
+            pass
+        ax.axis('off')
+
+    plt.subplots_adjust(wspace=0.02, hspace=0, left=0, right=1, top=1, bottom=0)
+    fig.savefig(output_path, dpi=80, bbox_inches='tight', pad_inches=0.01, facecolor='black')
     plt.close(fig)
     return output_path
 
@@ -1155,6 +1185,246 @@ def create_aggregate_maps_figure(
 
     fig.savefig(output_path, dpi=120, bbox_inches="tight")
     plt.close(fig)
+    return output_path
+
+
+# ============================================================================
+# Spatial map generation for flipbook viewer
+# ============================================================================
+
+# Default colormap and scale configurations for each map type
+SPATIAL_MAP_CONFIGS = {
+    'tsnr': {'cmap': 'plasma', 'vmin': 0, 'vmax': 150, 'label': 'tSNR'},
+    'mean': {'cmap': 'gray', 'vmin': None, 'vmax': None, 'label': 'Mean'},
+    'std': {'cmap': 'magma', 'vmin': None, 'vmax': None, 'label': 'Std Dev'},
+    'cov': {'cmap': 'inferno', 'vmin': 0, 'vmax': 0.2, 'label': 'CoV'},
+    'dropout': {'cmap': 'Reds', 'vmin': 0, 'vmax': 1, 'label': 'Dropout'},
+    'ar1': {'cmap': 'RdBu_r', 'vmin': -0.5, 'vmax': 0.5, 'label': 'AR(1)'},
+}
+
+
+def create_spatial_map_image(
+    data: np.ndarray,
+    output_path: Path,
+    map_type: str = 'tsnr',
+    mask: Optional[np.ndarray] = None,
+    n_slices: int = 5,
+    figsize: Tuple[float, float] = (8, 6),
+    show_colorbar: bool = True,
+) -> Path:
+    """
+    Create a multi-slice spatial map image for flipbook viewing.
+
+    Generates a figure with sagittal, coronal, and axial views showing
+    multiple slices for a single metric map.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        3D volume to display
+    output_path : Path
+        Output file path for the image
+    map_type : str
+        Type of map ('tsnr', 'mean', 'std', 'cov', 'dropout', 'ar1')
+        Used to determine colormap and scaling
+    mask : np.ndarray, optional
+        Brain mask for masking non-brain regions
+    n_slices : int
+        Number of slices per orientation (default: 5)
+    figsize : tuple
+        Figure size (width, height) in inches
+    show_colorbar : bool
+        Whether to show colorbar
+
+    Returns
+    -------
+    Path
+        Path to saved figure
+    """
+    # Get configuration for this map type
+    config = SPATIAL_MAP_CONFIGS.get(map_type, SPATIAL_MAP_CONFIGS['mean'])
+    cmap = config['cmap']
+    vmin = config['vmin']
+    vmax = config['vmax']
+    label = config['label']
+
+    # Auto-scale if not specified
+    valid_data = data[mask > 0] if mask is not None else data[data != 0]
+    if len(valid_data) > 0:
+        if vmin is None:
+            vmin = np.percentile(valid_data, 2)
+        if vmax is None:
+            vmax = np.percentile(valid_data, 98)
+
+    # Get slices
+    slices = _multi_view_slices(data, n_slices)
+
+    # Create figure: 3 rows for orientations
+    fig, axes = plt.subplots(3, n_slices, figsize=figsize)
+
+    orientation_labels = ['Sagittal', 'Coronal', 'Axial']
+    orientation_keys = ['sagittal', 'coronal', 'axial']
+
+    for row, (orientation, key) in enumerate(zip(orientation_labels, orientation_keys)):
+        for col, slice_img in enumerate(slices[key]):
+            ax = axes[row, col]
+            rotated = np.rot90(slice_img)
+            im = ax.imshow(rotated, cmap=cmap, vmin=vmin, vmax=vmax, aspect='auto')
+            ax.axis('off')
+
+            # Add orientation label on first column
+            if col == 0:
+                ax.set_ylabel(orientation, fontsize=10, fontweight='bold')
+                ax.yaxis.set_visible(True)
+                ax.set_yticks([])
+
+    # Add title
+    fig.suptitle(label, fontsize=12, fontweight='bold', y=0.98)
+
+    # Adjust spacing
+    fig.subplots_adjust(left=0.05, right=0.88 if show_colorbar else 0.98,
+                        bottom=0.02, top=0.92, wspace=0.05, hspace=0.15)
+
+    # Add colorbar
+    if show_colorbar:
+        cbar_ax = fig.add_axes([0.90, 0.15, 0.02, 0.7])
+        cbar = fig.colorbar(im, cax=cbar_ax)
+        cbar.ax.tick_params(labelsize=8)
+
+    fig.savefig(output_path, dpi=100, bbox_inches='tight', facecolor='white')
+    plt.close(fig)
+
+    return output_path
+
+
+def create_run_spatial_maps(
+    maps: Dict[str, np.ndarray],
+    output_dir: Path,
+    run_prefix: str,
+    mask: Optional[np.ndarray] = None,
+    n_slices: int = 5,
+) -> Dict[str, Path]:
+    """
+    Generate all spatial map images for a run for the flipbook viewer.
+
+    Creates separate image files for each available map type (tSNR, std, CoV,
+    dropout, AR1) that can be loaded into the flipbook viewer.
+
+    Parameters
+    ----------
+    maps : dict
+        Dictionary of 3D numpy arrays with keys like 'tsnr', 'mean', 'std',
+        'cov', 'dropout', 'ar1'
+    output_dir : Path
+        Directory to save the images
+    run_prefix : str
+        Prefix for output filenames (e.g., 'sub-01_ses-01_run-01')
+    mask : np.ndarray, optional
+        Brain mask for masking
+    n_slices : int
+        Number of slices per orientation
+
+    Returns
+    -------
+    dict
+        Dictionary mapping map type keys to output file paths
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    spatial_map_paths = {}
+
+    # Generate images for each available map type
+    for map_key in ['tsnr', 'std', 'cov', 'dropout', 'ar1']:
+        if map_key not in maps:
+            continue
+
+        output_path = output_dir / f"{run_prefix}_map_{map_key}.png"
+        create_spatial_map_image(
+            data=maps[map_key],
+            output_path=output_path,
+            map_type=map_key,
+            mask=mask,
+            n_slices=n_slices,
+        )
+        spatial_map_paths[map_key] = output_path
+
+    return spatial_map_paths
+
+
+def create_mean_mask_overlay(
+    mean_img: np.ndarray,
+    mask: np.ndarray,
+    output_path: Path,
+    n_slices: int = 5,
+    figsize: Tuple[float, float] = (8, 6),
+) -> Path:
+    """
+    Create a mean image with mask overlay for flipbook 'Mean + Mask' view.
+
+    Shows the mean BOLD image with the brain mask overlaid as a semi-transparent
+    color and contour to visualize coverage.
+
+    Parameters
+    ----------
+    mean_img : np.ndarray
+        3D mean BOLD volume
+    mask : np.ndarray
+        3D brain mask
+    output_path : Path
+        Output file path
+    n_slices : int
+        Number of slices per orientation
+    figsize : tuple
+        Figure size
+
+    Returns
+    -------
+    Path
+        Path to saved figure
+    """
+    slices = _multi_view_slices(mean_img, n_slices)
+    mask_slices = _multi_view_slices(mask.astype(float), n_slices)
+
+    fig, axes = plt.subplots(3, n_slices, figsize=figsize)
+
+    orientation_labels = ['Sagittal', 'Coronal', 'Axial']
+    orientation_keys = ['sagittal', 'coronal', 'axial']
+
+    for row, (orientation, key) in enumerate(zip(orientation_labels, orientation_keys)):
+        for col in range(n_slices):
+            ax = axes[row, col]
+            img_slice = np.rot90(slices[key][col])
+            mask_slice = np.rot90(mask_slices[key][col])
+
+            # Show mean image
+            ax.imshow(img_slice, cmap='gray', interpolation='nearest')
+
+            # Overlay mask as semi-transparent
+            ax.imshow(
+                np.ma.masked_where(mask_slice == 0, mask_slice),
+                cmap='spring', alpha=0.25, interpolation='nearest'
+            )
+
+            # Add mask contour
+            try:
+                ax.contour(mask_slice, levels=[0.5], colors='magenta', linewidths=0.7)
+            except Exception:
+                pass
+
+            ax.axis('off')
+
+            if col == 0:
+                ax.set_ylabel(orientation, fontsize=10, fontweight='bold')
+                ax.yaxis.set_visible(True)
+                ax.set_yticks([])
+
+    fig.suptitle('Mean + Mask', fontsize=12, fontweight='bold', y=0.98)
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
+
+    fig.savefig(output_path, dpi=100, bbox_inches='tight', facecolor='white')
+    plt.close(fig)
+
     return output_path
 
 

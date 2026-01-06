@@ -87,4 +87,30 @@ document.addEventListener('DOMContentLoaded', function() {
       setThumbDensity(savedDensity, btn);
     }
   }
+
+  // Apply smart defaults to run details (Phase 4: Progressive disclosure)
+  applySmartDefaults();
 });
+
+/**
+ * Apply smart defaults to run details elements (Phase 4: Progressive disclosure)
+ * - Auto-open runs with 3+ flags (bad quality)
+ * - Auto-close runs with 0 flags (good quality)
+ */
+function applySmartDefaults() {
+  const runDetails = document.querySelectorAll('details.run-row[data-flags]');
+
+  runDetails.forEach(function(details) {
+    const flags = parseInt(details.dataset.flags);
+
+    // Auto-open runs with 3+ flags (quality issues)
+    if (flags >= 3) {
+      details.setAttribute('open', 'true');
+    }
+    // Auto-close runs with 0 flags (good quality) - no action needed, default is closed
+    else if (flags === 0) {
+      details.removeAttribute('open');
+    }
+    // Runs with 1-2 flags (warning) - leave default behavior
+  });
+}

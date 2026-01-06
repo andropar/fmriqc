@@ -50,7 +50,7 @@ from typing import Dict, Optional, Tuple, TYPE_CHECKING
 import yaml
 
 if TYPE_CHECKING:
-    from .manifest import QAManifest
+    from fmriqa.io.manifest import QAManifest
 
 
 class DataSourcePreset(Enum):
@@ -235,6 +235,10 @@ class ProcessingConfig:
         For glmsingle: which input source was used
     glob_pattern : str
         Custom glob pattern for file discovery
+    generate_motion : bool
+        Generate motion parameters using FSL mcflirt when missing
+    fsl_container_path : Optional[Path]
+        Path to FSL Singularity container (auto-downloads if not specified)
     """
 
     n_jobs: int = 1
@@ -246,6 +250,8 @@ class ProcessingConfig:
     data_source: str = "finalinterp"
     glmsingle_input_source: str = "finalinterp"
     glob_pattern: str = ""
+    generate_motion: bool = False
+    fsl_container_path: Optional[Path] = None
 
     def __post_init__(self):
         """Validate processing settings."""
@@ -253,6 +259,10 @@ class ProcessingConfig:
             raise ValueError("n_jobs must be >= 1")
         if self.target_echo < 1:
             raise ValueError("target_echo must be >= 1")
+
+        # Convert fsl_container_path to Path if string
+        if isinstance(self.fsl_container_path, str):
+            self.fsl_container_path = Path(self.fsl_container_path)
 
 
 @dataclass
@@ -600,6 +610,8 @@ class QAConfig:
             'data_source': flat_data.get('data_source', 'finalinterp'),
             'glmsingle_input_source': flat_data.get('glmsingle_input_source', 'finalinterp'),
             'glob_pattern': flat_data.get('glob_pattern', ''),
+            'generate_motion': flat_data.get('generate_motion', False),
+            'fsl_container_path': flat_data.get('fsl_container_path'),
         }
 
         # Visualization fields
@@ -683,6 +695,8 @@ class QAConfig:
                 "data_source": self.processing.data_source,
                 "glmsingle_input_source": self.processing.glmsingle_input_source,
                 "glob_pattern": self.processing.glob_pattern,
+                "generate_motion": self.processing.generate_motion,
+                "fsl_container_path": str(self.processing.fsl_container_path) if self.processing.fsl_container_path else None,
             },
             "visualization": {
                 "generate_figures": self.visualization.generate_figures,
@@ -802,7 +816,7 @@ class QAConfig:
         if self.paths.manifest_path is None:
             return None
 
-        from .manifest import QAManifest
+        from fmriqa.io.manifest import QAManifest
 
         self.manifest = QAManifest.from_file(self.paths.manifest_path)
         return self.manifest
@@ -1050,3 +1064,21 @@ class QAConfig:
     @organize_hierarchical.setter
     def organize_hierarchical(self, value: bool):
         self.reporting.organize_hierarchical = value
+
+    @property
+    def generate_motion(self) -> bool:
+        """Backward compatibility for processing.generate_motion."""
+        return self.processing.generate_motion
+
+    @generate_motion.setter
+    def generate_motion(self, value: bool):
+        self.processing.generate_motion = value
+
+    @property
+    def fsl_container_path(self) -> Optional[Path]:
+        """Backward compatibility for processing.fsl_container_path."""
+        return self.processing.fsl_container_path
+
+    @fsl_container_path.setter
+    def fsl_container_path(self, value: Optional[Path]):
+        self.processing.fsl_container_path = value

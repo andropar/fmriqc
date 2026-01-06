@@ -1,146 +1,250 @@
-"""Refactored hierarchical HTML report generation using Jinja2 templates."""
+"""Report generation for fmriqa v2."""
 
 import json
+import statistics
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
-from .report_templates import (
-    create_template_environment,
-    inline_static_files,
-    render_subject_report,
-    render_study_report,
-)
-from fmriqa.io.structures import StudyResults, SubjectResults, SessionResults, RunResult
+from jinja2 import Environment, FileSystemLoader
 
-# Import utilities from report_components
-from .report_components import (
-    METRIC_TOOLTIPS,
-    METRIC_STANDARDS,
-    FLAG_DESCRIPTIONS,
-    COMPARISON_METRICS,
-    format_run_label,
-    format_metric_name,
-    format_metric_value,
-    escape_html,
-    escape_js_string,
-    relative_asset_path,
-    compute_session_metrics,
-    compute_subject_metrics,
-    serialize_subject_for_export,
-    serialize_study_for_interactive,
-    render_metrics_table,
-    render_metrics_summary,
-    get_outlier_badge,
-    get_fd_badge,
-    get_coverage_badge,
-    get_flag_badge,
-    ensure_thumbnail,
-    build_thumbnail_cards,
-)
+from fmriqa.io.structures import StudyResults, SubjectResults
 
 
-def generate_subject_report(
-    subject: SubjectResults,
-    output_dir: Path,
-    session_consistency: Dict[str, Dict],
-    alignment_report: Optional[Dict] = None,
-) -> Path:
-    """Generate a single report for a subject using Jinja2 templates.
+# Color palette for sessions
+SESSION_COLORS = [
+    '#3b82f6', '#8b5cf6', '#ec4899', '#f97316', '#14b8a6',
+    '#6366f1', '#84cc16', '#f43f5e', '#0ea5e9', '#a855f7'
+]
+
+# Metric metadata
+METRIC_INFO = {
+    'tsnr_median': {'label': 'tSNR', 'threshold': 30.0, 'direction': 'higher', 'unit': ''},
+    'fd_median': {'label': 'FD', 'threshold': 0.5, 'direction': 'lower', 'unit': 'mm'},
+    'dvars_std_median': {'label': 'DVARS', 'threshold': 1.5, 'direction': 'lower', 'unit': ''},
+    'coverage': {'label': 'Coverage', 'threshold': 0.85, 'direction': 'higher', 'unit': ''},
+    'gcor': {'label': 'GCOR', 'threshold': None, 'direction': 'lower', 'unit': ''},
+    'smoothness_fwhm': {'label': 'Smoothness', 'threshold': None, 'direction': None, 'unit': 'mm'},
+    'outlier_percent_above': {'label': 'Outlier %', 'threshold': 5.0, 'direction': 'lower', 'unit': '%'},
+    'fd_percent_above': {'label': 'Motion %', 'threshold': 10.0, 'direction': 'lower', 'unit': '%'},
+}
+
+
+def get_static_dir() -> Path:
+    """Get path to static files directory."""
+    return Path(__file__).parent / 'static'
+
+
+def get_templates_dir() -> Path:
+    """Get path to templates directory."""
+    return Path(__file__).parent / 'templates'
+
+
+def load_static_file(filename: str) -> str:
+    """Load a static file as string."""
+    filepath = get_static_dir() / filename
+    if filepath.exists():
+        return filepath.read_text()
+    return ''
+
+
+def create_template_env() -> Environment:
+    """Create Jinja2 environment with template directory."""
+    return Environment(
+        loader=FileSystemLoader(str(get_templates_dir())),
+        autoescape=True
+    )
+
+
+def compute_metric_distributions(study: StudyResults) -> Dict[str, List[float]]:
+    """Compute distributions of each metric across all runs."""
+    distributions: Dict[str, List[float]] = {}
+
+    for subject in study.subjects:
+        for session in subject.sessions:
+            for run in session.runs:
+                for key, value in run.metrics.items():
+                    if isinstance(value, (int, float)) and value is not None:
+                        if key not in distributions:
+                            distributions[key] = []
+                        distributions[key].append(float(value))
+
+    return distributions
+
+
+def compute_quality_summary(study: StudyResults) -> Dict[str, Any]:
+    """Compute quality summary (good/warn/bad counts)."""
+    good = warn = bad = 0
+
+    for subject in study.subjects:
+        for session in subject.sessions:
+            for run in session.runs:
+                flag_count = sum(1 for v in run.flags.values() if v)
+                if flag_count == 0:
+                    good += 1
+                elif flag_count <= 2:
+                    warn += 1
+                else:
+                    bad += 1
+
+    total = good + warn + bad
+    return {
+        'good_count': good,
+        'warn_count': warn,
+        'bad_count': bad,
+        'good_percent': (good / total * 100) if total > 0 else 0,
+        'warn_percent': (warn / total * 100) if total > 0 else 0,
+        'bad_percent': (bad / total * 100) if total > 0 else 0,
+    }
+
+
+def prepare_study_data(study: StudyResults, output_dir: Path) -> Dict[str, Any]:
+    """Prepare study data for JavaScript."""
+    distributions = compute_metric_distributions(study)
+
+    runs_data = []
+    for subject in study.subjects:
+        for session in subject.sessions:
+            for run in session.runs:
+                run_id = f"sub-{subject.subject}_ses-{session.session}_run-{run.info.run}"
+                if run.info.task:
+                    run_id += f"_task-{run.info.task}"
+
+                runs_data.append({
+                    'id': run_id,
+                    'subject': f"sub-{subject.subject}",
+                    'session': f"ses-{session.session}",
+                    'task': run.info.task or '',
+                    'metrics': {k: float(v) if isinstance(v, (int, float)) else v
+                               for k, v in run.metrics.items()},
+                    'flags': run.flags,
+                })
+
+    return {
+        'runs': runs_data,
+        'distributions': distributions,
+        'metricInfo': {k: v for k, v in METRIC_INFO.items()},
+        'subjects': [f"sub-{s.subject}" for s in study.subjects],
+    }
+
+
+def prepare_subject_data(subject: SubjectResults, output_dir: Path, assets_base: Optional[Path] = None) -> Dict[str, Any]:
+    """Prepare subject data for JavaScript.
 
     Parameters
     ----------
     subject : SubjectResults
         Subject results
     output_dir : Path
-        Output directory
-    session_consistency : dict
-        Session consistency metrics
-    alignment_report : dict, optional
-        Cross-session alignment report
-
-    Returns
-    -------
-    Path
-        Path to the generated report
+        Output directory for reports (where subject_report.html will be)
+    assets_base : Path, optional
+        Base directory where assets (images) are located. If None, uses output_dir.
     """
-    # Create Jinja2 environment
-    template_env = create_template_environment()
+    runs_data = []
 
-    # Get inline static content
-    static_content = inline_static_files(output_dir)
+    # Compute metric ranges from data
+    all_metrics: Dict[str, List[float]] = {}
+    for session in subject.sessions:
+        for run in session.runs:
+            for key, value in run.metrics.items():
+                if isinstance(value, (int, float)) and value is not None:
+                    if key not in all_metrics:
+                        all_metrics[key] = []
+                    all_metrics[key].append(float(value))
 
-    # Calculate summary stats
-    total_runs = sum(len(session.runs) for session in subject.sessions)
-    total_flagged = sum(
-        1 for session in subject.sessions
-        for run in session.runs
-        if any(run.flags.values())
-    )
+    # Build metric info with computed ranges
+    metric_info = {}
+    for key, info in METRIC_INFO.items():
+        if key in all_metrics:
+            values = all_metrics[key]
+            val_min = min(values)
+            val_max = max(values)
+            padding = (val_max - val_min) * 0.1 if val_max != val_min else 0.1
 
-    # Build thumbnail cards
-    thumb_cards = build_thumbnail_cards(subject, output_dir)
+            metric_info[key] = {
+                **info,
+                'key': key,
+                'min': val_min - padding,
+                'max': val_max + padding,
+            }
 
-    # Compute subject metrics
-    subject_metrics = compute_subject_metrics(subject.sessions)
+    for session in subject.sessions:
+        for run in session.runs:
+            run_id = f"sub-{subject.subject}_ses-{session.session}_run-{run.info.run}"
+            if run.info.task:
+                run_id += f"_task-{run.info.task}"
 
-    # Determine key metrics
-    key_metrics = []
-    for key in ["tsnr_median", "fd_median", "coverage", "gcor"]:
-        if key in subject_metrics:
-            key_metrics.append(key)
-        elif f"{key}_median" in subject_metrics:
-            key_metrics.append(f"{key}_median")
-        elif f"{key}_mean" in subject_metrics:
-            key_metrics.append(f"{key}_mean")
+            # Use asset_paths directly - convert to strings
+            thumbnail_path = run.asset_paths.get('thumbnail')
+            figure_path = run.asset_paths.get('figure')
+            carpet_path = run.asset_paths.get('carpetplot')
 
-    # Prepare export data
-    export_data = serialize_subject_for_export(subject, session_consistency)
+            # Convert Path objects to strings
+            if thumbnail_path:
+                thumbnail_path = str(thumbnail_path)
+            if figure_path:
+                figure_path = str(figure_path)
+            if carpet_path:
+                carpet_path = str(carpet_path)
 
-    # Prepare template context
-    context = {
-        # Subject data
-        'subject': subject,
-        'total_runs': total_runs,
-        'total_flagged': total_flagged,
-        'thumb_cards': thumb_cards,
-        'subject_metrics': subject_metrics,
-        'key_metrics': key_metrics,
-        'alignment_report': alignment_report,
-        'output_dir': output_dir,
-        'session_consistency': session_consistency,
-        'export_data': export_data,
+            # If we have absolute paths, try to make them relative to assets_base
+            if assets_base:
+                if run.thumbnail_path and Path(run.thumbnail_path).is_absolute():
+                    try:
+                        thumbnail_path = str(Path(run.thumbnail_path).relative_to(assets_base))
+                    except ValueError:
+                        pass
+                if run.figure_path and Path(run.figure_path).is_absolute():
+                    try:
+                        figure_path = str(Path(run.figure_path).relative_to(assets_base))
+                    except ValueError:
+                        pass
+                if run.carpetplot_path and Path(run.carpetplot_path).is_absolute():
+                    try:
+                        carpet_path = str(Path(run.carpetplot_path).relative_to(assets_base))
+                    except ValueError:
+                        pass
 
-        # Static assets (inlined)
-        'css_path': f"<style>{static_content['css_inline']}</style>",
-        'js_common_path': f"<script>{static_content['js_common']}</script>",
-        'js_quality_controls_path': f"<script>{static_content['js_quality_controls']}</script>",
-        'js_navigation_path': f"<script>{static_content['js_navigation']}</script>",
-        'js_export_path': f"<script>{static_content['js_export']}</script>",
-        'js_views_path': f"<script>{static_content['js_views']}</script>",
-        'js_threshold_controls_path': f"<script>{static_content['js_threshold_controls']}</script>",
+            # For subject reports in subdirectory, paths need to go up one level
+            # to reach assets in the main output directory
+            prefix = "../"
 
-        # Helper functions
-        'render_metrics_summary': render_metrics_summary,
-        'format_run_label': format_run_label,
-        'escape_html': escape_html,
-        'escape_js_string': escape_js_string,
+            # Collect spatial map paths for flipbook viewer
+            spatial_maps = {}
+            for key, path in run.asset_paths.items():
+                if key.startswith('spatial_map_'):
+                    map_type = key.replace('spatial_map_', '')
+                    if path:
+                        spatial_maps[map_type] = prefix + str(path)
 
-        # Search function name
-        'search_function': 'filterRuns()',
+            runs_data.append({
+                'id': run_id,
+                'session': f"ses-{session.session}",
+                'run': run.info.run,
+                'task': run.info.task or '',
+                'label': f"run-{run.info.run}",
+                'metrics': {k: float(v) if isinstance(v, (int, float)) else v
+                           for k, v in run.metrics.items()},
+                'flags': run.flags,
+                'thumbnailPath': prefix + thumbnail_path if thumbnail_path else None,
+                'figurePath': prefix + figure_path if figure_path else None,
+                'carpetPath': prefix + carpet_path if carpet_path else None,
+                'spatialMaps': spatial_maps,
+            })
+
+    return {
+        'subject': f"sub-{subject.subject}",
+        'runs': runs_data,
+        'metricInfo': metric_info,
     }
-
-    # Render report
-    report_path = output_dir / "subject_report.html"
-    return render_subject_report(template_env, context, report_path)
 
 
 def generate_study_report(
     study: StudyResults,
     output_dir: Path,
-    study_aggregate_path: Optional[Path] = None,
+    version: str = "0.1.0"
 ) -> Path:
-    """Generate main study report using Jinja2 templates.
+    """Generate the study overview report.
 
     Parameters
     ----------
@@ -148,325 +252,276 @@ def generate_study_report(
         Study results
     output_dir : Path
         Output directory
-    study_aggregate_path : Path, optional
-        Path to study aggregate figure
+    version : str
+        fmriqa version string
 
     Returns
     -------
     Path
-        Path to the generated report
+        Path to generated report
     """
-    # Create Jinja2 environment
-    template_env = create_template_environment()
+    env = create_template_env()
+    template = env.get_template('study_report.html')
 
-    # Get inline static content
-    static_content = inline_static_files(output_dir)
+    # Load static files
+    css_content = load_static_file('css/styles.css')
+    d3_content = load_static_file('js/vendor/d3.v7.min.js')
+    charts_content = load_static_file('js/charts.js')
+    main_content = load_static_file('js/main.js')
 
-    # Calculate total runs
-    total_runs = sum(
-        len(session.runs) for subject in study.subjects for session in subject.sessions
+    # Compute distributions for medians
+    distributions = compute_metric_distributions(study)
+
+    # Prepare subject summaries
+    subjects_data = []
+    for subj in study.subjects:
+        n_runs = sum(len(s.runs) for s in subj.sessions)
+        n_flagged = sum(1 for s in subj.sessions for r in s.runs if any(r.flags.values()))
+        n_excluded = 0  # Could compute from exclusion report
+
+        # Get median metrics for subject
+        subj_tsnr = []
+        subj_fd = []
+        for session in subj.sessions:
+            for run in session.runs:
+                if 'tsnr_median' in run.metrics:
+                    subj_tsnr.append(run.metrics['tsnr_median'])
+                if 'fd_median' in run.metrics:
+                    subj_fd.append(run.metrics['fd_median'])
+
+        subjects_data.append({
+            'id': f"sub-{subj.subject}",
+            'n_sessions': len(subj.sessions),
+            'n_runs': n_runs,
+            'n_flagged': n_flagged,
+            'n_excluded': n_excluded,
+            'tsnr': statistics.median(subj_tsnr) if subj_tsnr else 0,
+            'fd': statistics.median(subj_fd) if subj_fd else 0,
+            'report_path': f"sub-{subj.subject}/subject_report.html",
+        })
+
+    # Prepare scatter metrics
+    scatter_metrics = [
+        {'key': k, 'label': v['label']}
+        for k, v in METRIC_INFO.items()
+        if k in distributions
+    ]
+
+    # Default and additional metrics for distribution toggles
+    default_metric_keys = ['tsnr_median', 'fd_median', 'dvars_std_median']
+    default_metrics = [{'key': k, 'label': METRIC_INFO[k]['label']}
+                       for k in default_metric_keys if k in distributions]
+    additional_metrics = [{'key': k, 'label': METRIC_INFO[k]['label']}
+                          for k in METRIC_INFO.keys()
+                          if k not in default_metric_keys and k in distributions]
+
+    # Quality summary
+    quality = compute_quality_summary(study)
+
+    # Exclusion info
+    exclusion_count = 0
+    exclusion_reasons = ""
+    if study.exclusion_report:
+        excluded = [e for e in study.exclusion_report.run_exclusions if e.excluded]
+        exclusion_count = len(excluded)
+        if exclusion_count > 0:
+            reasons = {}
+            for e in excluded:
+                for r in e.reasons:
+                    # Convert ExclusionReason enum/object to string for counting
+                    reason_str = str(r.value) if hasattr(r, 'value') else str(r)
+                    reasons[reason_str] = reasons.get(reason_str, 0) + 1
+            exclusion_reasons = ", ".join(f"{v} {k}" for k, v in reasons.items())
+
+    # Total runs
+    n_runs = sum(len(s.runs) for subj in study.subjects for s in subj.sessions)
+
+    # Median metrics
+    median_tsnr = statistics.median(distributions.get('tsnr_median', [0])) if distributions.get('tsnr_median') else 0
+    median_fd = statistics.median(distributions.get('fd_median', [0])) if distributions.get('fd_median') else 0
+
+    # Prepare study data for JS
+    study_data = prepare_study_data(study, output_dir)
+
+    # Render
+    html = template.render(
+        study_name=study.analysis_metadata.get('study_name', 'Study'),
+        generation_time=datetime.now().strftime('%Y-%m-%d %H:%M'),
+        version=version,
+        n_subjects=len(study.subjects),
+        n_runs=n_runs,
+        median_tsnr=median_tsnr,
+        median_fd=median_fd,
+        quality=quality,
+        subjects=subjects_data,
+        default_metrics=default_metrics,
+        additional_metrics=additional_metrics,
+        scatter_metrics=scatter_metrics,
+        exclusion_count=exclusion_count,
+        exclusion_reasons=exclusion_reasons,
+        study_data_json=json.dumps(study_data),
+        css_content=css_content,
+        d3_content=d3_content,
+        charts_content=charts_content,
+        main_content=main_content,
     )
 
-    # Prepare paths
-    if study_aggregate_path and study_aggregate_path.exists():
-        study_aggregate_rel = relative_asset_path(study_aggregate_path, output_dir)
-    else:
-        study_aggregate_rel = None
+    # Write report
+    report_path = output_dir / 'index.html'
+    report_path.write_text(html)
 
-    # Prepare group plots paths
-    group_plots_rel = {}
-    if study.group_plots:
-        for key, path in study.group_plots.items():
-            if path and path.exists():
-                group_plots_rel[key] = relative_asset_path(path, output_dir)
+    return report_path
 
-    # Prepare interactive data
-    interactive_data = None
-    if total_runs >= 3:
-        interactive_data = serialize_study_for_interactive(study)
 
-    # Compute subject metrics for display
-    subject_metrics_map = {}
+def generate_subject_report(
+    subject: SubjectResults,
+    output_dir: Path,
+    study_report_path: str = "../index.html",
+    reviews_path: Optional[Path] = None,
+    version: str = "0.1.0"
+) -> Path:
+    """Generate a subject report.
+
+    Parameters
+    ----------
+    subject : SubjectResults
+        Subject results
+    output_dir : Path
+        Output directory for this subject
+    study_report_path : str
+        Relative path back to study report
+    reviews_path : Path, optional
+        Path to existing reviews JSON file
+    version : str
+        fmriqa version string
+
+    Returns
+    -------
+    Path
+        Path to generated report
+    """
+    env = create_template_env()
+    template = env.get_template('subject_report.html')
+
+    # Load static files
+    css_content = load_static_file('css/styles.css')
+    d3_content = load_static_file('js/vendor/d3.v7.min.js')
+    charts_content = load_static_file('js/charts.js')
+    main_content = load_static_file('js/main.js')
+    flipbook_content = load_static_file('js/flipbook.js')
+    reviews_content = load_static_file('js/reviews.js')
+
+    # Prepare subject data
+    subject_data = prepare_subject_data(subject, output_dir)
+
+    # Session colors
+    sessions = list(set(r['session'] for r in subject_data['runs']))
+    session_colors = {s: SESSION_COLORS[i % len(SESSION_COLORS)]
+                      for i, s in enumerate(sorted(sessions))}
+
+    # Prepare runs for template
+    runs_template = []
+    for run in subject_data['runs']:
+        runs_template.append({
+            'id': run['id'],
+            'label': run['label'],
+            'session': run['session'],
+            'task': run['task'],
+            'review_status': None,  # Will be set by JS from reviews
+        })
+
+    # Timeline metrics - show more by default
+    timeline_metrics = []
+    default_timeline_keys = ['tsnr_median', 'fd_median', 'dvars_std_median', 'coverage']
+    for key in ['tsnr_median', 'fd_median', 'dvars_std_median', 'coverage', 'gcor', 'smoothness_fwhm']:
+        if key in subject_data['metricInfo']:
+            info = subject_data['metricInfo'][key]
+            timeline_metrics.append({
+                'key': key,
+                'label': info['label'],
+                'default': key in default_timeline_keys,
+            })
+
+    # Count flagged runs
+    n_flagged = sum(1 for s in subject.sessions for r in s.runs if any(r.flags.values()))
+
+    # Load existing reviews if available
+    initial_reviews = {}
+    if reviews_path and reviews_path.exists():
+        try:
+            with open(reviews_path) as f:
+                data = json.load(f)
+                initial_reviews = data.get('reviews', {})
+        except Exception:
+            pass
+
+    # Render
+    html = template.render(
+        subject_id=f"sub-{subject.subject}",
+        generation_time=datetime.now().strftime('%Y-%m-%d %H:%M'),
+        version=version,
+        study_report_path=study_report_path,
+        n_sessions=len(subject.sessions),
+        n_runs=len(subject_data['runs']),
+        n_flagged=n_flagged,
+        runs=runs_template,
+        session_colors=session_colors,
+        timeline_metrics=timeline_metrics,
+        subject_data_json=json.dumps(subject_data),
+        initial_reviews_json=json.dumps(initial_reviews),
+        css_content=css_content,
+        d3_content=d3_content,
+        charts_content=charts_content,
+        main_content=main_content,
+        flipbook_content=flipbook_content,
+        reviews_content=reviews_content,
+    )
+
+    # Write report
+    output_dir.mkdir(parents=True, exist_ok=True)
+    report_path = output_dir / 'subject_report.html'
+    report_path.write_text(html)
+
+    return report_path
+
+
+def generate_all_reports(
+    study: StudyResults,
+    output_dir: Path,
+    version: str = "0.1.0"
+) -> Dict[str, Path]:
+    """Generate all reports for a study.
+
+    Parameters
+    ----------
+    study : StudyResults
+        Study results
+    output_dir : Path
+        Output directory
+    version : str
+        fmriqa version string
+
+    Returns
+    -------
+    Dict[str, Path]
+        Dictionary mapping report names to paths
+    """
+    reports = {}
+
+    # Generate study report
+    reports['study'] = generate_study_report(study, output_dir, version)
+
+    # Generate subject reports
     for subject in study.subjects:
-        subject_metrics_map[subject.subject] = compute_subject_metrics(subject.sessions)
+        subject_dir = output_dir / f"sub-{subject.subject}"
+        reviews_path = subject_dir / 'qa_reviews.json'
 
-    # Prepare outlier data for template
-    outlier_data = prepare_outlier_data(study)
+        reports[f"sub-{subject.subject}"] = generate_subject_report(
+            subject,
+            subject_dir,
+            study_report_path="../index.html",
+            reviews_path=reviews_path if reviews_path.exists() else None,
+            version=version,
+        )
 
-    # Prepare exclusion data for template
-    exclusion_data = prepare_exclusion_data(study)
-
-    # Chart script for interactive dashboard
-    chart_script = _get_chart_script()
-
-    # Prepare template context
-    context = {
-        # Study data
-        'study': study,
-        'total_runs': total_runs,
-        'generation_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        'study_aggregate_path': study_aggregate_rel,
-        'output_dir': output_dir,
-        'analysis_metadata': study.analysis_metadata,
-
-        # Sections
-        'outlier_data': outlier_data,
-        'exclusion_data': exclusion_data,
-        'chart_script': chart_script,
-
-        # Interactive data
-        'interactive_data': interactive_data,
-        'comparison_metrics': COMPARISON_METRICS,
-
-        # Subject metrics
-        'subject_metrics_map': subject_metrics_map,
-
-        # Static assets (inlined)
-        'css_path': f"<style>{static_content['css_inline']}</style>",
-        'js_common_path': f"<script>{static_content['js_common']}</script>",
-        'js_study_path': f"<script>{static_content['js_study']}</script>",
-        'js_threshold_controls_path': f"<script>{static_content['js_threshold_controls']}</script>",
-
-        # Helper functions
-        'format_metric_name': format_metric_name,
-        'format_metric_value': format_metric_value,
-        'relative_asset_path': relative_asset_path,
-
-        # Search function name
-        'search_function': 'filterSubjects()',
-    }
-
-    # Render report
-    report_path = output_dir / "index.html"
-    return render_study_report(template_env, context, report_path)
-
-
-def prepare_outlier_data(study: StudyResults) -> Optional[Dict]:
-    """Prepare outlier detection data for template rendering.
-
-    Parameters
-    ----------
-    study : StudyResults
-        Study results containing outlier report
-
-    Returns
-    -------
-    Optional[Dict]
-        Dictionary with outlier data for template, or None if no outliers
-    """
-    outlier_report = getattr(study, 'outlier_report', {})
-    has_any_outliers = (
-        study.overall_outliers or
-        outlier_report.get('extreme_motion', []) or
-        outlier_report.get('low_tsnr', [])
-    )
-
-    if not has_any_outliers:
-        return None
-
-    tsnr_thresh = outlier_report.get('tsnr_threshold', 30.0)
-
-    # Build outlier explanations dictionary
-    outlier_explanations = {}
-
-    for run_id in outlier_report.get('multivariate_outliers', []):
-        if run_id not in outlier_explanations:
-            outlier_explanations[run_id] = []
-        distance = outlier_report.get('mahalanobis_distances', {}).get(run_id, 0)
-        outlier_explanations[run_id].append(f"Unusual metric pattern (statistical distance: {distance:.1f})")
-
-    for run_id in outlier_report.get('extreme_motion', []):
-        if run_id not in outlier_explanations:
-            outlier_explanations[run_id] = []
-        outlier_explanations[run_id].append("Excessive head motion")
-
-    for run_id in outlier_report.get('low_tsnr', []):
-        if run_id not in outlier_explanations:
-            outlier_explanations[run_id] = []
-        outlier_explanations[run_id].append(f"Low signal quality (tSNR < {tsnr_thresh:.0f})")
-
-    univariate = outlier_report.get('univariate_outliers', {})
-    for metric, run_ids in univariate.items():
-        metric_name = format_metric_name(metric)
-        for run_id in run_ids:
-            if run_id not in outlier_explanations:
-                outlier_explanations[run_id] = []
-            outlier_explanations[run_id].append(f"Univariate outlier: {metric_name}")
-
-    return {
-        'tsnr_threshold': tsnr_thresh,
-        'outlier_explanations': outlier_explanations,
-        'summary': outlier_report.get('summary', {}),
-        'warnings': outlier_report.get('warnings', []),
-    }
-
-
-def prepare_exclusion_data(study: StudyResults) -> Optional[Dict]:
-    """Prepare exclusion recommendations data for template rendering.
-
-    Parameters
-    ----------
-    study : StudyResults
-        Study results containing exclusion report
-
-    Returns
-    -------
-    Optional[Dict]
-        Dictionary with exclusion data for template, or None if no exclusion report
-    """
-    exclusion_report = getattr(study, 'exclusion_report', None)
-    if exclusion_report is None:
-        return None
-
-    # Filter excluded runs
-    excluded_runs = [e for e in exclusion_report.run_exclusions if e.excluded]
-
-    # Filter high scrubbing runs (>10% data loss)
-    scrubbing = exclusion_report.volume_scrubbing
-    high_scrub_runs = sorted(
-        [s for s in scrubbing if s.data_loss_percent > 10],
-        key=lambda x: -x.data_loss_percent
-    )
-
-    # Reason labels mapping
-    reason_labels = {
-        'fd_median': 'High median FD',
-        'fd_percent': 'High % motion volumes',
-        'tsnr_min': 'Low absolute tSNR',
-        'tsnr_percentile': 'Low tSNR percentile',
-        'dvars_percent': 'High % DVARS volumes',
-        'outlier_percent': 'High % outlier volumes',
-        'mahalanobis': 'Multivariate outlier',
-        'coverage': 'Low brain coverage',
-    }
-
-    return {
-        'summary': exclusion_report.summary,
-        'stringency': exclusion_report.stringency,
-        'criteria': exclusion_report.criteria,
-        'excluded_runs': excluded_runs,
-        'high_scrub_runs': high_scrub_runs,
-        'reason_labels': reason_labels,
-    }
-
-
-def _get_chart_script() -> str:
-    """Get the Chart.js initialization script for study reports."""
-    return """<script>
-let chart = null;
-const subjectColors = {};
-const colorPalette = ['#0d7377', '#e74c3c', '#3498db', '#2ecc71', '#9b59b6', '#f39c12', '#1abc9c', '#e67e22', '#34495e', '#95a5a6'];
-
-// Assign colors to subjects
-qaData.subjects.forEach((subj, i) => {
-    subjectColors[subj] = colorPalette[i % colorPalette.length];
-});
-
-function getColor(run, colorBy) {
-    if (colorBy === 'subject') return subjectColors[run.subject];
-    if (colorBy === 'session') {
-        const sessions = [...new Set(qaData.runs.map(r => r.session))];
-        return colorPalette[sessions.indexOf(run.session) % colorPalette.length];
-    }
-    if (colorBy === 'flagged') {
-        const hasFlags = Object.values(run.flags || {}).some(v => v);
-        return hasFlags ? '#e74c3c' : '#2ecc71';
-    }
-    return '#0d7377';
-}
-
-function updateChart() {
-    const xMetric = document.getElementById('xMetricSelect').value;
-    const yMetric = document.getElementById('yMetricSelect').value;
-    const colorBy = document.getElementById('colorBySelect').value;
-    const subjectFilter = document.getElementById('subjectFilter').value;
-
-    let filteredRuns = qaData.runs;
-    if (subjectFilter !== 'all') {
-        filteredRuns = qaData.runs.filter(r => r.subject === subjectFilter);
-    }
-
-    const data = filteredRuns
-        .filter(r => r.metrics[xMetric] != null && r.metrics[yMetric] != null)
-        .map(r => ({
-            x: r.metrics[xMetric],
-            y: r.metrics[yMetric],
-            runData: r,
-            backgroundColor: getColor(r, colorBy),
-            borderColor: getColor(r, colorBy),
-        }));
-
-    const xLabel = qaData.metrics.find(m => m.key === xMetric)?.label || xMetric;
-    const yLabel = qaData.metrics.find(m => m.key === yMetric)?.label || yMetric;
-
-    if (chart) chart.destroy();
-
-    const ctx = document.getElementById('comparisonChart').getContext('2d');
-    chart = new Chart(ctx, {
-        type: 'scatter',
-        data: {
-            datasets: [{
-                data: data,
-                pointRadius: 6,
-                pointHoverRadius: 9,
-                backgroundColor: data.map(d => d.backgroundColor),
-                borderColor: data.map(d => d.borderColor),
-                borderWidth: 1,
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: { display: false },
-                tooltip: {
-                    callbacks: {
-                        label: (ctx) => {
-                            const run = ctx.raw.runData;
-                            return `${run.id}: (${ctx.raw.x.toFixed(2)}, ${ctx.raw.y.toFixed(2)})`;
-                        }
-                    }
-                }
-            },
-            scales: {
-                x: { title: { display: true, text: xLabel, font: { weight: 'bold' } } },
-                y: { title: { display: true, text: yLabel, font: { weight: 'bold' } } }
-            },
-            onClick: (evt, elements) => {
-                if (elements.length > 0) {
-                    const idx = elements[0].index;
-                    const run = data[idx].runData;
-                    showRunDetails(run);
-                }
-            }
-        }
-    });
-}
-
-function showRunDetails(run) {
-    const panel = document.getElementById('runDetailsPanel');
-    const title = document.getElementById('runDetailsTitle');
-    const grid = document.getElementById('runDetailsGrid');
-
-    title.textContent = run.id;
-    panel.classList.add('active');
-
-    let html = '';
-    qaData.metrics.forEach(m => {
-        const val = run.metrics[m.key];
-        const displayVal = val != null ? val.toFixed(3) : 'N/A';
-        html += `<div class="run-detail-item"><span class="label">${m.label}</span><span class="value">${displayVal}</span></div>`;
-    });
-
-    // Show flags
-    const activeFlags = Object.entries(run.flags || {}).filter(([k, v]) => v).map(([k]) => k);
-    if (activeFlags.length > 0) {
-        html += `<div class="run-detail-item" style="grid-column: 1/-1; background: #fee2e2;"><span class="label">Flags</span><span class="value" style="color: #9b2c2c;">${activeFlags.join(', ')}</span></div>`;
-    }
-
-    grid.innerHTML = html;
-}
-
-// Initialize chart on load
-document.addEventListener('DOMContentLoaded', updateChart);
-</script>"""
+    return reports

@@ -37,6 +37,89 @@
         {% endif %}
     </div>
 
+    {# Quality dashboard #}
+    {% if quality_summary and quality_summary.total_runs > 0 %}
+    <section class="quality-dashboard">
+        <h2 style="margin-top: 0;">Study Quality Overview</h2>
+        <p style="color: var(--muted); margin-bottom: 1.5rem;">
+            Overall quality assessment across {{ quality_summary.total_runs }} run(s)
+        </p>
+
+        {# Quality distribution bar #}
+        <div class="quality-bar">
+            {% if quality_summary.good_percent > 0 %}
+            <div class="segment good" style="width: {{ quality_summary.good_percent }}%">
+                {% if quality_summary.good_percent >= 15 %}
+                {{ "%.0f"|format(quality_summary.good_percent) }}% Good
+                {% endif %}
+            </div>
+            {% endif %}
+            {% if quality_summary.warning_percent > 0 %}
+            <div class="segment warning" style="width: {{ quality_summary.warning_percent }}%">
+                {% if quality_summary.warning_percent >= 15 %}
+                {{ "%.0f"|format(quality_summary.warning_percent) }}% Review
+                {% endif %}
+            </div>
+            {% endif %}
+            {% if quality_summary.bad_percent > 0 %}
+            <div class="segment bad" style="width: {{ quality_summary.bad_percent }}%">
+                {% if quality_summary.bad_percent >= 15 %}
+                {{ "%.0f"|format(quality_summary.bad_percent) }}% Issues
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+
+        {# Quality summary cards #}
+        <div class="quality-cards">
+            <div class="card card-good">
+                <h3>Good Quality</h3>
+                <div class="value">{{ quality_summary.good_count }}</div>
+                <p style="margin-top: 0.5rem; color: var(--muted); font-size: 0.85rem;">
+                    0 flags raised
+                </p>
+            </div>
+            <div class="card card-warning">
+                <h3>Needs Review</h3>
+                <div class="value">{{ quality_summary.warning_count }}</div>
+                <p style="margin-top: 0.5rem; color: var(--muted); font-size: 0.85rem;">
+                    1-2 flags raised
+                </p>
+            </div>
+            <div class="card card-bad">
+                <h3>Quality Issues</h3>
+                <div class="value">{{ quality_summary.bad_count }}</div>
+                <p style="margin-top: 0.5rem; color: var(--muted); font-size: 0.85rem;">
+                    3+ flags raised
+                </p>
+            </div>
+        </div>
+
+        {# Recommendations based on quality #}
+        {% if quality_summary.bad_percent >= 20 %}
+        <div class="recommendation recommendation-warning">
+            <strong>⚠ Attention Required</strong>
+            <p>More than 20% of runs have quality issues (3+ flags). Review the flagged runs below and consider excluding problematic data from analysis.</p>
+        </div>
+        {% elif quality_summary.bad_percent >= 10 %}
+        <div class="recommendation recommendation-info">
+            <strong>ℹ Review Suggested</strong>
+            <p>{{ "%.0f"|format(quality_summary.bad_percent) }}% of runs have quality issues. Review the outlier and exclusion sections below for detailed recommendations.</p>
+        </div>
+        {% elif quality_summary.good_percent >= 90 %}
+        <div class="recommendation recommendation-success">
+            <strong>✓ Excellent Quality</strong>
+            <p>{{ "%.0f"|format(quality_summary.good_percent) }}% of runs show good quality with no flags raised. Data appears suitable for analysis.</p>
+        </div>
+        {% else %}
+        <div class="recommendation recommendation-info">
+            <strong>ℹ Standard Quality</strong>
+            <p>Most runs show acceptable quality. Review individual runs with flags to determine if exclusion is necessary.</p>
+        </div>
+        {% endif %}
+    </section>
+    {% endif %}
+
     {# Analysis information #}
     {% if study.analysis_metadata %}
     {% include 'components/analysis_info_section.html' %}
@@ -56,9 +139,10 @@
     <div class="stats-dashboard">
         {% for key, path in study.group_plots.items() %}
         {% if path %}
+        {% set group_plot_rel = path | relative_asset(output_dir) %}
         <div class="stat-card" style="text-align: center;">
             <h4>{{ format_metric_name(key) }} Distribution</h4>
-            <img src="{{ path }}" alt="{{ key }} comparison" style="max-width: 100%; height: auto; border-radius: 8px;">
+            <img src="{{ group_plot_rel }}" alt="{{ key }} comparison" style="max-width: 100%; height: auto; border-radius: 8px;">
         </div>
         {% endif %}
         {% endfor %}

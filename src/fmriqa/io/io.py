@@ -402,6 +402,10 @@ class RunResultSerializer:
         arrays_path = run_dir / "arrays.npz"
         self._save_arrays(result, arrays_path)
 
+        # Save web-friendly series JSON for report visualization
+        series_path = run_dir / "series.json"
+        self._save_series_json(result, series_path)
+
         # Copy figure assets
         figure_dest = None
         if result.figure_path is not None:
@@ -420,12 +424,14 @@ class RunResultSerializer:
             result.carpetplot_path = carpet_dest
         if thumb_dest is not None:
             result.thumbnail_path = thumb_dest
+        result.series_path = series_path
 
         # Build asset paths dict
         asset_paths: Dict[str, Path] = {
             "run_dir": _relative_path(run_dir, output_root),
             "arrays": _relative_path(arrays_path, output_root),
             "metadata": _relative_path(run_dir / "result.json", output_root),
+            "series": _relative_path(series_path, output_root),
         }
         if figure_dest is not None:
             asset_paths["figure"] = _relative_path(figure_dest, output_root)
@@ -500,6 +506,19 @@ class RunResultSerializer:
         thumb_rel = asset_paths.get("thumbnail")
         thumb_path = source_root / thumb_rel if thumb_rel else None
 
+        # Discover series.json path (may exist even if not in metadata)
+        series_rel = asset_paths.get("series")
+        if series_rel:
+            series_path = source_root / series_rel
+        else:
+            # Try to discover series.json in run directory
+            run_dir_rel = asset_paths.get("run_dir")
+            if run_dir_rel:
+                potential_series = source_root / run_dir_rel / "series.json"
+                series_path = potential_series if potential_series.exists() else None
+            else:
+                series_path = None
+
         # Create RunResult
         result = RunResult(
             info=info,
@@ -520,6 +539,7 @@ class RunResultSerializer:
             events_validated=metadata.get("events_validated", False),
             file_mtime=metadata.get("file_mtime", 0.0),
             processing_time=metadata.get("processing_time", 0.0),
+            series_path=series_path,
         )
 
         return result
@@ -548,6 +568,46 @@ class RunResultSerializer:
         arrays_payload["header"] = np.frombuffer(header_bytes, dtype=np.uint8)
 
         np.savez_compressed(arrays_path, **arrays_payload)
+
+    def _save_series_json(self, result: RunResult, series_path: Path) -> None:
+        """Save time series data as web-friendly JSON for report visualization.
+
+        Exports FD, DVARS, global signal and other temporal metrics as JSON
+        arrays that can be loaded by the HTML report's JavaScript.
+        """
+        series_arrays, _ = _split_dict_arrays(result.series)
+
+        # Build JSON-serializable output
+        series_data = {
+            "run_id": result.info.get_identifier(),
+            "n_volumes": None,
+            "tr": None,  # Could be extracted from header if available
+            "series": {},
+        }
+
+        # Keys to export for web visualization
+        export_keys = ["fd", "dvars", "dvars_std", "global_signal", "outlier_fraction"]
+
+        for key in export_keys:
+            if key in series_arrays:
+                arr = series_arrays[key]
+                # Convert to list, round to reasonable precision
+                series_data["series"][key] = [
+                    round(float(v), 4) if np.isfinite(v) else None
+                    for v in arr
+                ]
+                # Set n_volumes from first series
+                if series_data["n_volumes"] is None:
+                    series_data["n_volumes"] = len(arr)
+
+        # Add any threshold values from series (scalars)
+        if "dvars_threshold" in result.series:
+            series_data["dvars_threshold"] = float(result.series["dvars_threshold"])
+
+        # Only write if we have data
+        if series_data["series"]:
+            with series_path.open("w", encoding="utf-8") as fp:
+                json.dump(series_data, fp)
 
     def _load_arrays(
         self, arrays_path: Path, metadata: Dict

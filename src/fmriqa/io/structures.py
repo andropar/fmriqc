@@ -69,6 +69,7 @@ class RunResult:
     file_mtime: float = 0.0  # File modification time
     processing_time: float = 0.0  # Time to process in seconds
     asset_paths: Dict[str, Path] = field(default_factory=dict)
+    series_path: Optional[Path] = None  # Path to series.json for web visualization
 
     def to_cache(self) -> Dict:
         """

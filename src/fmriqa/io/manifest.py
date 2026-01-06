@@ -218,15 +218,19 @@ class QAManifest:
     name: str = ""
     description: str = ""
     base_path: Optional[Path] = None
+    qa_config: Optional[Dict] = None  # Optional embedded QA configuration
 
     def to_dict(self) -> Dict:
         """Convert to dictionary."""
-        return {
+        result = {
             "name": self.name,
             "description": self.description,
             "base_path": str(self.base_path) if self.base_path else None,
             "subjects": [s.to_dict() for s in self.subjects],
         }
+        if self.qa_config:
+            result["qa_config"] = self.qa_config
+        return result
 
     @classmethod
     def from_dict(cls, data: Dict, manifest_path: Optional[Path] = None) -> "QAManifest":
@@ -253,6 +257,7 @@ class QAManifest:
                 ManifestSubject.from_dict(s, base_path)
                 for s in data.get("subjects", [])
             ],
+            qa_config=data.get("qa_config"),  # Extract embedded config
         )
 
     @classmethod

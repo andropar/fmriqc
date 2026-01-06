@@ -31,7 +31,13 @@ from .metrics import (compute_fd, compute_dvars_standardized, compute_slice_qual
                       assess_brain_mask_quality, detect_physiological_noise,
                       validate_events_file, assess_sdc_quality, compute_smoothness,
                       compute_ar1, detrend_poly, robust_z, compute_gcor)
-from fmriqa.visualization.visualization import create_run_figure, create_carpetplot, create_run_thumbnail
+from fmriqa.visualization.visualization import (
+    create_run_figure,
+    create_carpetplot,
+    create_run_thumbnail,
+    create_run_spatial_maps,
+    create_mean_mask_overlay,
+)
 
 
 # ============================================================================
@@ -444,7 +450,7 @@ def _create_visualizations(
     slice_qc: Optional[Dict],
     config: QAConfig,
     warnings_list: List[str],
-) -> Tuple[Path, Optional[Path], Optional[Path]]:
+) -> Tuple[Path, Optional[Path], Optional[Path], Dict[str, Path]]:
     """Create visualization outputs.
 
     Parameters
@@ -477,8 +483,10 @@ def _create_visualizations(
     Returns
     -------
     tuple
-        (figure_path, carpetplot_path, thumbnail_path)
+        (figure_path, carpetplot_path, thumbnail_path, spatial_map_paths)
     """
+    spatial_map_paths = {}
+
     # Compact thumbnail for quick visual QA
     thumbnail_path = None
     try:
@@ -507,7 +515,25 @@ def _create_visualizations(
         except Exception as e:
             warnings_list.append(f"Carpetplot failed: {e}")
 
-    return figure_path, carpetplot_path, thumbnail_path
+    # Create spatial map images for flipbook viewer
+    try:
+        run_prefix = info.path.stem
+        spatial_map_paths = create_run_spatial_maps(
+            maps=maps,
+            output_dir=run_dir,
+            run_prefix=run_prefix,
+            mask=mask_data,
+            n_slices=5,
+        )
+
+        # Create mean+mask overlay for flipbook
+        mean_mask_path = run_dir / f"{run_prefix}_map_mean_mask.png"
+        create_mean_mask_overlay(mean_img, mask_data, mean_mask_path, n_slices=5)
+        spatial_map_paths['mean_mask'] = mean_mask_path
+    except Exception as e:
+        warnings_list.append(f"Spatial map generation failed: {e}")
+
+    return figure_path, carpetplot_path, thumbnail_path, spatial_map_paths
 
 
 # ============================================================================
@@ -565,6 +591,7 @@ def _create_run_result(
     figure_path: Path,
     carpetplot_path: Optional[Path],
     thumbnail_path: Optional[Path],
+    spatial_map_paths: Dict[str, Path],
     mean_img: np.ndarray,
     warnings_list: List[str],
     slice_qc: Optional[Dict],
@@ -597,6 +624,8 @@ def _create_run_result(
         Path to carpetplot
     thumbnail_path : Path, optional
         Path to thumbnail
+    spatial_map_paths : dict
+        Paths to individual spatial map images for flipbook viewer
     mean_img : np.ndarray
         Mean image
     warnings_list : list
@@ -619,6 +648,16 @@ def _create_run_result(
     """
     mean_vector = mean_img[mask_data].astype(np.float32)
 
+    # Build asset_paths dict with all visualization paths
+    asset_paths = {
+        'figure': figure_path,
+        'carpetplot': carpetplot_path,
+        'thumbnail': thumbnail_path,
+    }
+    # Add spatial map paths (prefix with 'spatial_map_' for clarity)
+    for map_key, map_path in spatial_map_paths.items():
+        asset_paths[f'spatial_map_{map_key}'] = map_path
+
     result = RunResult(
         info=info,
         metrics=metrics,
@@ -638,6 +677,7 @@ def _create_run_result(
         events_validated=events_validated,
         file_mtime=file_mtime,
         processing_time=processing_time,
+        asset_paths=asset_paths,
     )
 
     return result
@@ -737,7 +777,7 @@ def process_single_run(
         }
 
         # Create visualizations
-        figure_path, carpetplot_path, thumbnail_path = _create_visualizations(
+        figure_path, carpetplot_path, thumbnail_path, spatial_map_paths = _create_visualizations(
             data, mask_data, mean_img, info, run_dir, maps, series, fd,
             thresholds, slice_qc, config, warnings_list
         )
@@ -773,7 +813,7 @@ def process_single_run(
         processing_time = time.time() - start_time
         result = _create_run_result(
             info, metrics, flags, series, maps, mask_data, data_img,
-            figure_path, carpetplot_path, thumbnail_path, mean_img,
+            figure_path, carpetplot_path, thumbnail_path, spatial_map_paths, mean_img,
             warnings_list, slice_qc, sdc_assessed, events_validated,
             file_mtime, processing_time
         )

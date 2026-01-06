@@ -84,6 +84,8 @@ def get_static_paths(output_dir: Path) -> dict:
         'js_views_path': static_dir / "js" / "views.js",
         'js_study_path': static_dir / "js" / "study.js",
         'js_threshold_controls_path': static_dir / "js" / "threshold_controls.js",
+        'js_timeline_path': static_dir / "js" / "timeline.js",
+        'js_detail_panel_path': static_dir / "js" / "detail_panel.js",
     }
 
 
@@ -114,6 +116,8 @@ def inline_static_files(output_dir: Path) -> dict:
         'views': paths['js_views_path'].read_text(encoding='utf-8'),
         'study': paths['js_study_path'].read_text(encoding='utf-8'),
         'threshold_controls': paths['js_threshold_controls_path'].read_text(encoding='utf-8'),
+        'timeline': paths['js_timeline_path'].read_text(encoding='utf-8'),
+        'detail_panel': paths['js_detail_panel_path'].read_text(encoding='utf-8'),
     }
 
     return {
@@ -125,6 +129,8 @@ def inline_static_files(output_dir: Path) -> dict:
         'js_views': js_files['views'],
         'js_study': js_files['study'],
         'js_threshold_controls': js_files['threshold_controls'],
+        'js_timeline': js_files['timeline'],
+        'js_detail_panel': js_files['detail_panel'],
     }
 
 

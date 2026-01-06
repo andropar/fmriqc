@@ -1,179 +1,235 @@
 # fmriqa
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+
 > **Disclaimer:** Large portions of this codebase were AI-generated and have not been fully manually reviewed. Please verify correctness before using in production or for published research.
 
-Quality assurance pipeline for fMRI preprocessing outputs. Generates interactive HTML reports with metrics, visualizations, and outlier detection.
+**fmriqa** is a comprehensive quality assurance pipeline for fMRI preprocessing outputs. It generates interactive HTML reports with detailed metrics, visualizations, and automated outlier detection to help you assess and improve data quality.
 
-## Installation
+## ✨ Key Features
+
+- 📊 **Comprehensive Metrics** - tSNR, DVARS, FD, GCOR, smoothness, and more
+- 🎨 **Interactive Reports** - Hierarchical HTML reports with keyboard navigation
+- 📈 **Longitudinal Tracking** - Timeline visualizations showing metric evolution across sessions
+- 🔍 **Outlier Detection** - Automated identification of problematic runs
+- ⚡ **Parallel Processing** - Multi-core support for fast processing
+- 📝 **Flexible Input** - BIDS-compliant or custom manifest files
+- 🧠 **Motion Generation** - Automatic FSL mcflirt integration via Docker/Singularity
+- 💾 **Smart Caching** - Incremental processing with result reuse
+
+## 📖 Documentation
+
+- **[Installation Guide](docs/INSTALL.md)** - Detailed installation instructions
+- **[Usage Guide](docs/USAGE.md)** - Comprehensive usage examples
+- **[Manifest Files](docs/MANIFEST.md)** - Custom data organization
+- **[Metrics Reference](docs/METRICS.md)** - Detailed metric descriptions
+- **[Configuration Options](docs/CONFIGURATION.md)** - All CLI and config options
+- **[Motion Generation](docs/MOTION_GENERATION.md)** - Generating motion parameters
+- **[Python API](docs/API.md)** - Programmatic usage
+- **[Contributing](CONTRIBUTING.md)** - Development guidelines
+
+## 🚀 Quick Start
+
+### Installation
 
 ```bash
 pip install fmriqa
 ```
 
-For development:
-```bash
-git clone https://github.com/andropar/fmriqa.git
-cd fmriqa
-pip install -e ".[dev]"
-```
-
-## Quick start
-
-### Command-line interface
+### Basic Usage
 
 ```bash
-# Basic usage
+# Run QA on preprocessed data
 fmriqa --derivatives-dir /path/to/derivatives --data-source tedana --n-jobs 4
 
-# Using a manifest for non-standard directory structures
+# Using a manifest for custom directory structures
 fmriqa --manifest manifest.yaml --n-jobs 4
 
-# Generate reports only (skip metric computation)
-fmriqa --reports-only /path/to/existing/QA/dir
+# Generate motion parameters if missing (requires Docker or Singularity)
+fmriqa --manifest manifest.yaml --generate-motion --n-jobs 2
 ```
 
 ### Python API
 
 ```python
 from pathlib import Path
-from fmriqa import QAConfig, run_qa
-from fmriqa.manifest import generate_manifest_from_globs
+from fmriqa.orchestration.config import QAConfig
+from fmriqa.orchestration.orchestration import run_qa
 
-# Standard usage
-config = QAConfig(
-    derivatives_dir=Path("/path/to/derivatives"),
-    data_source="tedana",
-    n_jobs=4,
-)
-run_qa(config)
-
-# With manifest - pass it directly, no need to save to disk
-manifest = generate_manifest_from_globs(
-    bold_pattern="data/**/func/*bold.nii.gz",
-    mask_pattern="data/**/func/*mask.nii.gz",
-)
-config = QAConfig(manifest=manifest, n_jobs=4)
-run_qa(config)
+config = QAConfig.from_yaml("qa_config.yaml")
+results = run_qa(config)
 ```
 
-## What you need
+## 📋 What You Need
 
 **Required:**
-- 4D BOLD NIfTI (`.nii.gz`) - the preprocessed fMRI timeseries
+- 4D BOLD NIfTI files (`.nii.gz`) - preprocessed fMRI timeseries
 
 **Optional (but recommended):**
-- Brain mask (`.nii.gz`) - if missing, a threshold-based mask is generated
-- Motion parameters (`.par` or `.txt`) - needed for FD computation
+- Brain masks (`.nii.gz`) - auto-generated if missing
+- Motion parameters (`.par` or `.txt`) - can be generated with `--generate-motion`
 
-## Manifest files
+## 📊 Example Output
 
-For non-standard directory structures, create a manifest that lists your files explicitly.
+The pipeline generates a hierarchical report structure:
 
-**YAML format:**
+```
+QA/YYYYMMDD_HHMMSS/
+├── index.html              # Main study report
+├── qa_config.yaml          # Configuration used
+├── study_summary.json      # Overall metrics
+├── outlier_report.json     # Outlier detection results
+├── exclusions/
+│   ├── excluded_runs.tsv   # Recommended exclusions
+│   └── censor_files/       # Volume-level censoring
+├── aggregate_maps/         # Average maps across runs
+├── group_plots/            # Cross-subject comparisons
+└── sub-*/
+    ├── subject_report.html # Per-subject report
+    └── ses-*/
+        ├── session_report.html
+        └── run-*/
+            ├── figures/
+            └── metrics.json
+```
+
+## 🎮 Interactive Features
+
+The HTML reports include:
+
+- **Keyboard Navigation**:
+  - `j`/`k` - Next/previous run
+  - `Space` - Toggle run quality (good/bad)
+  - `f` - Jump to next flagged run
+  - `/` - Search
+  - `e`/`c` - Expand/collapse all
+
+- **Longitudinal Timeline**: Track metric evolution across sessions
+- **Quality Badges**: Color-coded quality indicators
+- **Export Options**: Save decisions to JSON
+- **Responsive Design**: Works on desktop and tablets
+
+## 🧪 Computed Metrics
+
+| Metric | Description | Good Values |
+|--------|-------------|-------------|
+| **tSNR** | Temporal signal-to-noise ratio | > 50 |
+| **DVARS** | Frame-to-frame signal change | < 1.5 |
+| **FD** | Framewise displacement (head motion) | < 0.3 mm |
+| **GCOR** | Global correlation | < 0.2 |
+| **Smoothness** | Spatial smoothness (FWHM) | Data-dependent |
+| **AR(1)** | Temporal autocorrelation | 0.2 - 0.6 |
+| **Coverage** | Brain coverage percentage | > 85% |
+
+See [docs/METRICS.md](docs/METRICS.md) for detailed descriptions and references.
+
+## 🔧 Advanced Features
+
+### Motion Parameter Generation
+
+If motion parameters are not available from preprocessing:
+
+```bash
+fmriqa --manifest manifest.yaml --generate-motion --n-jobs 2
+```
+
+Requires Docker (macOS/Windows) or Singularity/Apptainer (HPC). See [docs/MOTION_GENERATION.md](docs/MOTION_GENERATION.md) for details.
+
+### Custom Thresholds
+
+```bash
+fmriqa --derivatives-dir /path/to/data \
+    --fd-threshold 0.5 \
+    --dvars-z-threshold 3.0 \
+    --tsnr-drop-threshold 0.25 \
+    --exclusion-stringency conservative
+```
+
+### Manifest Files for Non-Standard Layouts
+
 ```yaml
-name: "My Study"
-base_path: "/data/my_study"  # paths below are relative to this
-
 subjects:
   - id: "sub-01"
     sessions:
       - id: "ses-01"
         runs:
-          - bold: "sub-01/ses-01/func/bold.nii.gz"
-            mask: "sub-01/ses-01/func/mask.nii.gz"  # optional
-            motion: "sub-01/ses-01/func/motion.par"  # optional
-            label: "run-01"
+          - bold: "path/to/bold.nii.gz"
+            mask: "path/to/mask.nii.gz"  # optional
+            motion: "path/to/motion.par"  # optional
+            run: "run-01"
 ```
 
-**Auto-generate from globs:**
-```bash
-python scripts/generate_qa_manifest.py \
-    --bold "data/**/func/*bold.nii.gz" \
-    --mask "data/**/func/*mask.nii.gz" \
-    --subject-regex "sub-([^/_]+)" \
-    --session-regex "ses-([^/_]+)" \
-    --validate \
-    --output manifest.yaml
-```
+See [docs/MANIFEST.md](docs/MANIFEST.md) for complete format specification.
 
-The `--validate` flag checks that all files exist before writing.
-
-## Command line options
-
-```
---derivatives-dir PATH    Where preprocessed data lives
---manifest FILE           Use manifest instead of glob patterns
---data-source TYPE        tedana, finalinterp, glmsingle, or manifest
---output-dir-name NAME    Output folder name (default: QA)
---n-jobs N                Parallel jobs (default: 1)
-
---dvars-z-threshold       Standardized DVARS threshold (default: 2.5)
---fd-threshold            FD threshold in mm (default: 0.3)
---exclusion-stringency    liberal, moderate, or conservative
-
---no-carpetplots          Skip carpetplot generation (faster)
---force-reprocess         Ignore cache, reprocess everything
---reports-only DIR        Just regenerate reports from existing QA dir
---dry-run                 Show what would be processed
-```
-
-## Output
-
-```
-QA/YYYYMMDD_HHMMSS/
-├── index.html                # Main report - open this!
-├── qa_config.yaml            # Config used
-├── study_summary.json        # Overall metrics
-├── outlier_report.json       # Outlier detection
-├── exclusions/
-│   ├── excluded_runs.tsv     # Runs to exclude
-│   └── censor_files/         # Volume-level censoring
-├── aggregate_maps/           # Average maps across runs
-├── group_plots/              # Comparison plots
-└── sub-*/                    # Per-subject reports
-```
-
-## Interactive report features
-
-The HTML reports have keyboard shortcuts:
-- `j` / `k` - Next/prev run
-- `Space` - Toggle run quality (good/bad)
-- `f` - Jump to next flagged run
-- `/` - Search
-- `e` / `c` - Expand/collapse all
-
-You can mark runs as good/bad and export your decisions to JSON.
-
-## Computed metrics
-
-| Metric | What it measures | Good values |
-|--------|------------------|-------------|
-| tSNR | Temporal signal-to-noise | > 50 |
-| DVARS | Frame-to-frame signal change | < 1.5 |
-| FD | Head motion (mm) | < 0.3 |
-| GCOR | Global correlation | < 0.2 |
-| Smoothness | Spatial smoothness (FWHM mm) | depends on your data |
-
-## Module structure
+## 📦 Module Structure
 
 ```
 src/fmriqa/
-├── core.py              # Main pipeline + CLI
-├── config.py            # Configuration
-├── manifest.py          # Manifest handling
-├── processing.py        # Per-run QA computation
-├── metrics.py           # Metric functions
-├── reporting.py         # HTML generation
-├── visualization.py     # Figures
-├── outliers.py          # Outlier detection
-├── exclusions.py        # Exclusion recommendations
-└── report_components/   # CSS, JS, tooltips
+├── orchestration/          # Pipeline orchestration
+│   ├── orchestration.py    # Run discovery and processing
+│   ├── config.py           # Configuration management
+│   └── cli_parser.py       # CLI argument parsing
+├── core/                   # Core QA computation
+│   ├── processing.py       # Per-run QA processing
+│   ├── metrics.py          # Metric computation functions
+│   └── constants.py        # Threshold and constant definitions
+├── reporting/              # Report generation
+│   ├── reporting.py        # HTML report generation
+│   ├── visualization.py    # Figure creation
+│   └── report_components/  # Templates, CSS, JS
+├── analysis/               # Quality analysis
+│   ├── outliers.py         # Outlier detection
+│   ├── exclusions.py       # Exclusion recommendations
+│   └── consistency.py      # Intra-subject consistency
+├── io/                     # I/O operations
+│   ├── io.py               # File I/O and caching
+│   ├── manifest.py         # Manifest handling
+│   └── structures.py       # Data structures
+└── motion_generation.py    # Motion parameter generation
 ```
 
-## Contributing
+## 🤝 Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-## License
+Key areas for contribution:
+- Additional QA metrics
+- New visualization types
+- Performance optimizations
+- Documentation improvements
+- Bug fixes and testing
 
-MIT License - see LICENSE file for details.
+## 📄 License
+
+MIT License - see [LICENSE](LICENSE) file for details.
+
+## 📚 Citation
+
+If you use fmriqa in your research, please cite:
+
+```bibtex
+@software{fmriqa2024,
+  title = {fmriqa: Quality Assurance Pipeline for fMRI Preprocessing},
+  author = {[Your Name]},
+  year = {2024},
+  url = {https://github.com/andropar/fmriqa}
+}
+```
+
+## 🔗 Related Projects
+
+- [fMRIPrep](https://fmriprep.org/) - Robust preprocessing pipeline
+- [MRIQC](https://mriqc.readthedocs.io/) - Image quality metrics
+- [tedana](https://tedana.readthedocs.io/) - Multi-echo denoising
+- [GLMsingle](https://github.com/cvnlab/GLMsingle) - Single-trial GLM estimation
+
+## 📞 Support
+
+- **Issues**: [GitHub Issues](https://github.com/andropar/fmriqa/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/andropar/fmriqa/discussions)
+- **Email**: [your.email@example.com]
+
+---
+
+Made with ❤️ for the neuroimaging community

@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+
+{% block title %}{{ subject_id }} - QA Report{% endblock %}
+
+{% block content %}
+<header>
+    <div class="header-row">
+        <div>
+            <h1>{{ subject_id }} Quality Report</h1>
+            <p class="meta">Generated {{ generation_time }} · <a href="{{ study_report_path }}">← Back to Study</a></p>
+        </div>
+        <button class="metric-toggle" onclick="downloadReviews()">Download Reviews</button>
+    </div>
+</header>
+
+<!-- Summary strip with review progress -->
+<div class="summary-strip">
+    <div class="summary-item">
+        <span class="value">{{ n_sessions }}</span>
+        <span class="label">Sessions</span>
+    </div>
+    <div class="summary-item">
+        <span class="value">{{ n_runs }}</span>
+        <span class="label">Runs</span>
+    </div>
+    <div class="summary-item">
+        <span class="value">{{ n_flagged }}</span>
+        <span class="label">Flagged</span>
+    </div>
+    <div class="summary-item" style="flex: 1; min-width: 200px;">
+        <span class="label mb-1">Review Progress</span>
+        <div class="review-progress">
+            <div class="review-progress-bar">
+                <!-- Populated by JS -->
+            </div>
+            <span class="review-progress-text">0 reviewed</span>
+        </div>
+    </div>
+</div>
+
+<!-- Metric toggles -->
+<div class="card">
+    <div class="card-header">
+        <h2>Timeline Metrics</h2>
+        <div class="metric-toggles">
+            {% for metric in timeline_metrics %}
+            <button class="metric-toggle {{ 'active' if metric.default else '' }}" data-metric="{{ metric.key }}">{{ metric.label }}</button>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Run table with timeline -->
+    <div class="run-table-container">
+        <!-- Left: Run info table -->
+        <div class="run-info-table">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 8px;"></th>
+                        <th style="width: 50px;">Thumb</th>
+                        <th>Run</th>
+                        <th>Task</th>
+                        <th>Review</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for run in runs %}
+                    <tr data-run-id="{{ run.id }}" class="{{ 'row-good' if run.review_status == 'good' else 'row-exclude' if run.review_status == 'exclude' else '' }}">
+                        <td style="padding: 0;">
+                            <div class="session-indicator" style="background: {{ session_colors[run.session] }}; width: 4px; height: 100%; min-height: 40px;"></div>
+                        </td>
+                        <td class="thumb-cell">
+                            <img class="row-thumbnail" src="" alt="" data-run-id="{{ run.id }}" onclick="openRunDetail('{{ run.id }}')">
+                        </td>
+                        <td>
+                            <a href="#" class="run-link" onclick="openRunDetail('{{ run.id }}'); return false;">
+                                {{ run.label }}
+                            </a>
+                            <span class="note-indicator" style="display: none;" title="">📝</span>
+                        </td>
+                        <td class="text-muted">{{ run.task or '-' }}</td>
+                        <td>
+                            <div class="review-toggle">
+                                <button class="review-btn good-btn {{ 'active' if run.review_status == 'good' else '' }}" onclick="setReviewStatus('{{ run.id }}', 'good')">✓</button>
+                                <button class="review-btn bad-btn {{ 'active' if run.review_status == 'exclude' else '' }}" onclick="setReviewStatus('{{ run.id }}', 'exclude')">✗</button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Right: Timeline visualization (header now integrated in SVG) -->
+        <div class="timeline-panel">
+            <div id="timeline-viz">
+                <!-- D3 timeline rendered here with integrated header -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Session legend -->
+<div class="card">
+    <h2>Sessions</h2>
+    <div class="scatter-legend">
+        {% for session_id, color in session_colors.items() %}
+        <div class="legend-item">
+            <div class="legend-dot" style="background: {{ color }};"></div>
+            {{ session_id }}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- Detail Modal -->
+<div id="detail-modal" class="modal-overlay">
+    <div class="modal" style="width: 900px;">
+        <div class="modal-header">
+            <div style="display: flex; align-items: center; gap: 1rem;">
+                <h2 id="detail-modal-title">Run Details</h2>
+                <div class="review-toggle">
+                    <button id="modal-good-btn" class="review-btn good-btn" onclick="setReviewStatus(currentRunId, 'good')">✓ Good</button>
+                    <button id="modal-bad-btn" class="review-btn bad-btn" onclick="setReviewStatus(currentRunId, 'exclude')">✗ Exclude</button>
+                </div>
+            </div>
+            <button class="modal-close" onclick="closeModal('detail-modal')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <!-- Flipbook viewer -->
+            <div class="flipbook-viewer">
+                <div id="flipbook-buttons" class="flipbook-controls">
+                    <!-- Populated by JS -->
+                </div>
+                <div id="flipbook-container">
+                    <img id="flipbook-image" class="flipbook-image" src="" alt="Brain map">
+                </div>
+            </div>
+
+            <!-- Metrics grid -->
+            <h3>Metrics</h3>
+            <div id="detail-metrics-grid" class="detail-grid">
+                <!-- Populated by JS -->
+            </div>
+
+            <!-- Carpet plot -->
+            <div class="carpet-section">
+                <h3>Time Series (Carpet Plot)</h3>
+                <img id="carpet-image" class="carpet-image" src="" alt="Carpet plot">
+            </div>
+
+            <!-- Notes -->
+            <div class="notes-section">
+                <h3>Notes</h3>
+                <textarea id="run-notes" placeholder="Add notes about this run..."></textarea>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<!-- Flipbook JS -->
+<script>
+{{ flipbook_content|safe }}
+</script>
+<!-- Reviews JS -->
+<script>
+{{ reviews_content|safe }}
+</script>
+<script>
+// Subject data for JavaScript
+const subjectData = {{ subject_data_json|safe }};
+
+// Initial reviews (loaded from JSON file if exists)
+const initialReviews = {{ initial_reviews_json|safe }};
+</script>
+{% endblock %}

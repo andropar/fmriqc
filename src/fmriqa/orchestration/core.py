@@ -26,7 +26,7 @@ from .orchestration import (
     process_runs,
     setup_output_and_cache,
 )
-from fmriqa.reporting.reporting import generate_study_report
+from fmriqa.reporting import generate_study_report
 from fmriqa.io.structures import RunResult
 
 

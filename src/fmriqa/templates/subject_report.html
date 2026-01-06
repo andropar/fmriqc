@@ -21,6 +21,22 @@
 {{ super() }}
 {% include "components/export_modal.html" %}
 {% include "components/help_sidebar.html" %}
+
+{# Metric Selection Modal #}
+<div id="metric-modal" class="metric-modal hidden">
+    <div class="metric-modal-content">
+        <div class="metric-modal-header">
+            <h4>Select Metrics</h4>
+            <button onclick="closeMetricSelector()" aria-label="Close">&times;</button>
+        </div>
+        <div class="metric-modal-body" id="metric-options">
+            {# Will be populated by JavaScript #}
+        </div>
+        <div class="metric-modal-footer">
+            <button onclick="closeMetricSelector()">Done</button>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block content %}
@@ -54,17 +70,16 @@
                 <button class="pill" data-session="{{ session }}" onclick="filterThumbs('{{ session }}')">{{ session }}</button>
                 {% endfor %}
             </div>
-            <div class="thumb-density-toggle">
-                <button class="density-btn" onclick="setThumbDensity('compact', this)">Compact</button>
-                <button class="density-btn active" onclick="setThumbDensity('comfortable', this)">Comfortable</button>
-                <button class="density-btn" onclick="setThumbDensity('spacious', this)">Spacious</button>
+            <div class="metric-selector-inline">
+                <label>Metrics:</label>
+                <div class="metric-chips-inline" id="metric-chips-inline"></div>
             </div>
         </div>
 
         {% for session, cards in thumb_cards.items() %}
         <details class="thumb-session" open data-session="{{ session }}">
             <summary><strong>{{ session }}</strong> <span class="session-meta">{{ cards|length }} runs</span></summary>
-            <div class="thumb-grid" id="thumb-grid-{{ session }}">
+            <div class="run-list" id="run-list-{{ session }}">
                 {% for card in cards %}
                 {% set quality_class = 'good' %}
                 {% if card.flag_class == 'badge-bad' or card.outlier_class == 'badge-bad' %}
@@ -72,24 +87,25 @@
                 {% elif card.flag_class == 'badge-warn' or card.outlier_class == 'badge-warn' or card.fd_class == 'badge-warn' %}
                     {% set quality_class = 'warn' %}
                 {% endif %}
-                <a class="thumb-card" data-session="{{ session }}" href="#run-details-{{ card.run_id }}" onclick="openDetailAndJump('{{ card.run_id }}'); return false;">
-                    <div class="thumb-image">
-                        <img src="{{ card.img }}" alt="Mean+mask {{ card.run_label }}">
-                        <div class="thumb-quality-indicator {{ quality_class }}"></div>
-                    </div>
-                    <div class="thumb-content">
-                        <div class="thumb-meta">
-                            <span class="thumb-title">{{ card.run_label }}</span>
-                            <span class="badge {{ card.outlier_class }}">{{ card.outlier_text }}</span>
+                <div class="run-card-inline run-row" data-session="{{ session }}" data-run-id="{{ card.run_id }}" onclick="openDetailAndJump('{{ card.run_id }}')">
+                    <div class="run-info">
+                        <div class="run-thumbnail">
+                            <img src="{{ card.img }}" alt="Mean+mask {{ card.run_label }}">
+                            <div class="thumb-quality-indicator {{ quality_class }}"></div>
                         </div>
-                        <div class="thumb-badges">
-                            <span class="badge {{ card.fd_class }}">{{ card.fd_text }}</span>
-                            <span class="badge {{ card.cov_class }}">{{ card.cov_text }}</span>
-                            <span class="badge {{ card.flag_class }}">{{ card.flag_text }}</span>
+                        <div class="run-details">
+                            <div class="run-label">{{ card.run_label }}</div>
+                            <div class="run-badges">
+                                <span class="badge {{ card.fd_class }}">{{ card.fd_text }}</span>
+                                <span class="badge {{ card.cov_class }}">{{ card.cov_text }}</span>
+                                {% if card.flag_class != 'badge-good' %}
+                                <span class="badge {{ card.flag_class }}">{{ card.flag_text }}</span>
+                                {% endif %}
+                            </div>
                         </div>
-                        <div class="thumb-subtitle">{{ card.subtitle }}</div>
                     </div>
-                </a>
+                    <div class="metrics-inline-container"></div>
+                </div>
                 {% endfor %}
             </div>
         </details>
@@ -104,7 +120,6 @@
         <h2>Detail view</h2>
         <p><a class="thumb-link" href="#" onclick="setView('thumb'); return false;">⬅ Back to thumbnails</a></p>
 
-        <h2>Subject summary</h2>
         <div class="summary-cards">
             <div class="card">
                 <h3>Sessions</h3>
@@ -114,27 +129,33 @@
                 <h3>Runs</h3>
                 <div class="value">{{ total_runs }}</div>
             </div>
+            {% if total_flagged > 0 %}
+            <div class="card">
+                <h3>Flagged</h3>
+                <div class="value" style="color: var(--danger);">{{ total_flagged }}</div>
+            </div>
+            {% endif %}
         </div>
 
-        {# Subject-level metrics #}
-        {% if subject_metrics %}
-        <h3>Subject-level metrics</h3>
-        {{ render_metrics_summary(subject_metrics, key_metrics)|safe }}
-        {% endif %}
+        {# Two-panel detail view #}
+        {% include 'components/detail_panel.html' %}
 
-        {# Cross-session alignment #}
+        {# Cross-session alignment (shown below panel if multiple sessions) #}
         {% if alignment_report and subject.sessions|length > 1 %}
-        {% include 'components/alignment_section.html' %}
+        <div style="margin-top: var(--space-xl);">
+            {% include 'components/alignment_section.html' %}
+        </div>
         {% endif %}
-
-        {# Sessions and runs #}
-        <h2>Sessions and runs</h2>
-        {% include 'components/detailed_sessions.html' %}
     </section>
 </main>
 
+
 {# Embed export data #}
 <script type="application/json" id="qa-export-data">{{ export_data|tojson }}</script>
+
+{# Embed longitudinal data for timeline #}
+<script type="application/json" id="longitudinal-data">{{ longitudinal_data|tojson }}</script>
+
 {% endblock %}
 
 {% block extra_scripts %}
@@ -143,4 +164,6 @@
 {{ js_export_path|safe }}
 {{ js_views_path|safe }}
 {{ js_threshold_controls_path|safe }}
+{{ js_timeline_path|safe }}
+{{ js_detail_panel_path|safe }}
 {% endblock %}

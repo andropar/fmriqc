@@ -299,6 +299,73 @@ def process_runs(
     processed_results: List[Optional[RunResult]] = []
 
     if runs_to_process:
+        # Generate motion parameters if requested
+        if config.generate_motion:
+            from fmriqa.motion_generation import (
+                check_container_runtime,
+                get_container_path,
+                generate_motion_parameters,
+                ContainerNotFoundError,
+                MotionGenerationError,
+            )
+
+            try:
+                # Check which container runtime is available
+                runtime = check_container_runtime()
+
+                # Only download FSL container for Singularity runtime
+                # Docker will pull the image automatically
+                container_path = None
+                if runtime == "singularity":
+                    container_path = get_container_path(config.fsl_container_path)
+
+                # Identify runs needing motion parameters
+                runs_needing_motion = []
+                for path in runs_to_process:
+                    # Check if motion params already available
+                    has_motion = False
+                    if path in manifest_contexts:
+                        ctx = manifest_contexts[path]
+                        has_motion = ctx.motion_path is not None and ctx.motion_path.exists()
+
+                    if not has_motion:
+                        # Need to generate motion for this run
+                        # Use run_id from path for naming
+                        run_id = path.stem.replace("_bold", "").replace(".nii", "")
+                        runs_needing_motion.append((run_id, path))
+
+                # Generate motion parameters
+                if runs_needing_motion:
+                    par_files = generate_motion_parameters(
+                        runs_needing_motion,
+                        output_dir,
+                        container_path,
+                        n_jobs=config.n_jobs,
+                    )
+
+                    # Update manifest contexts with generated .par files
+                    for run_id, path in runs_needing_motion:
+                        if run_id in par_files:
+                            if path not in manifest_contexts:
+                                # Create minimal context for glob mode
+                                manifest_contexts[path] = ManifestRunContext(
+                                    bold_path=path,
+                                    subject_id="unknown",
+                                    session_id="unknown",
+                                    run_label=run_id,
+                                    mask_path=None,
+                                    motion_path=par_files[run_id],
+                                )
+                            else:
+                                # Update existing context
+                                manifest_contexts[path].motion_path = par_files[run_id]
+
+            except ContainerNotFoundError as e:
+                print(f"\nError: {e}")
+                sys.exit(1)
+            except MotionGenerationError as e:
+                print(f"\nWarning: Motion generation failed: {e}")
+                print("Continuing without generated motion parameters...")
 
         def worker(path: Path) -> Optional[RunResult]:
             # For manifest mode, use mask from manifest

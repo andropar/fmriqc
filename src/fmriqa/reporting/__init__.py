@@ -1,9 +1,13 @@
-"""Reporting modules.
+"""Reporting v2 - New HTML report generation system."""
 
-This package contains HTML report generation:
-- reporting: Study and subject report generation
-- report_templates: HTML template functions
-- report_components: Shared report utilities and renderers
-"""
+from .reporting import (
+    generate_study_report,
+    generate_subject_report,
+    compute_metric_distributions,
+)
 
-__all__ = []
+__all__ = [
+    "generate_study_report",
+    "generate_subject_report",
+    "compute_metric_distributions",
+]

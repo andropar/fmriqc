@@ -11,7 +11,10 @@
 {% set quality_class = 'quality-good' if session_is_good else 'quality-bad' %}
 {% set quality_text = '✓ Good' if session_is_good else '✗ Bad' %}
 
-<details id="session-details-{{ session_id_html }}">
+{# Session summary card - shows quality overview before details #}
+{% include 'components/session_summary.html' %}
+
+<details id="session-details-{{ session_id_html }}" open>
     <summary>
         <span>{{ session_label }}
             {% if flagged_runs_count > 0 %}

@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+
+{% block title %}{{ study_name }} - QA Report{% endblock %}
+
+{% block content %}
+<header>
+    <div class="header-row">
+        <div>
+            <h1>{{ study_name }} Quality Report</h1>
+            <p class="meta">Generated {{ generation_time }} · fmriqa v{{ version }}</p>
+        </div>
+    </div>
+</header>
+
+<!-- Summary strip -->
+<div class="summary-strip">
+    <div class="summary-item">
+        <span class="value">{{ n_subjects }}</span>
+        <span class="label">Subjects</span>
+    </div>
+    <div class="summary-item">
+        <span class="value">{{ n_runs }}</span>
+        <span class="label">Runs</span>
+    </div>
+    <div class="summary-item">
+        <span class="value">{{ "%.1f"|format(median_tsnr) }}</span>
+        <span class="label">Median tSNR</span>
+    </div>
+    <div class="summary-item">
+        <span class="value">{{ "%.2f"|format(median_fd) }}</span>
+        <span class="label">Median FD (mm)</span>
+    </div>
+</div>
+
+<!-- Quality bar -->
+<section class="quality-section">
+    <div class="quality-bar-container">
+        <div class="quality-bar">
+            <div class="good" style="width: {{ quality.good_percent }}%"></div>
+            <div class="warn" style="width: {{ quality.warn_percent }}%"></div>
+            <div class="bad" style="width: {{ quality.bad_percent }}%"></div>
+        </div>
+    </div>
+    <div class="quality-legend">
+        <span class="good">{{ quality.good_count }} good</span>
+        <span class="warn">{{ quality.warn_count }} review</span>
+        <span class="bad">{{ quality.bad_count }} issues</span>
+    </div>
+</section>
+
+<!-- Distribution plots -->
+<section class="card">
+    <div class="card-header">
+        <h2>Metric Distributions</h2>
+        <div class="metric-toggles">
+            {% for metric in default_metrics %}
+            <button class="metric-toggle active" data-metric="{{ metric.key }}">{{ metric.label }}</button>
+            {% endfor %}
+            {% for metric in additional_metrics %}
+            <button class="metric-toggle" data-metric="{{ metric.key }}">{{ metric.label }}</button>
+            {% endfor %}
+        </div>
+    </div>
+    <div id="distributions-grid" class="distributions-grid">
+        <!-- Populated by JS -->
+    </div>
+</section>
+
+{% if exclusion_count > 0 %}
+<!-- Action callout -->
+<div class="action-callout">
+    <strong>{{ exclusion_count }} run{{ 's' if exclusion_count > 1 else '' }} recommended for exclusion</strong>
+    <p>{{ exclusion_reasons }}. <a href="#subjects">View details below</a></p>
+</div>
+{% endif %}
+
+<!-- Main content: scatter + table -->
+<div class="main-content">
+    <!-- Interactive scatter plot -->
+    <section class="card scatter-section">
+        <h2>Metric Comparison</h2>
+        <div class="scatter-controls">
+            <div class="control-group">
+                <label>X-Axis</label>
+                <select id="x-metric">
+                    {% for metric in scatter_metrics %}
+                    <option value="{{ metric.key }}" {{ 'selected' if metric.key == 'tsnr_median' else '' }}>{{ metric.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="control-group">
+                <label>Y-Axis</label>
+                <select id="y-metric">
+                    {% for metric in scatter_metrics %}
+                    <option value="{{ metric.key }}" {{ 'selected' if metric.key == 'fd_median' else '' }}>{{ metric.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="control-group">
+                <label>Color by</label>
+                <select id="color-by">
+                    <option value="subject" selected>Subject</option>
+                    <option value="session">Session</option>
+                    <option value="task">Task</option>
+                </select>
+            </div>
+        </div>
+        <div id="scatter-plot" class="scatter-plot-container"></div>
+        <div id="scatter-legend" class="scatter-legend"></div>
+    </section>
+
+    <!-- Subject table -->
+    <section class="card">
+        <h2>Subjects</h2>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Subject</th>
+                        <th>Sessions</th>
+                        <th>Runs</th>
+                        <th>tSNR</th>
+                        <th>FD</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for subject in subjects %}
+                    <tr>
+                        <td><a href="{{ subject.report_path }}" class="subject-link">{{ subject.id }}</a></td>
+                        <td>{{ subject.n_sessions }}</td>
+                        <td>{{ subject.n_runs }}</td>
+                        <td class="metric {{ 'bad' if subject.tsnr < 20 else 'warn' if subject.tsnr < 30 else '' }}">{{ "%.1f"|format(subject.tsnr) }}</td>
+                        <td class="metric {{ 'bad' if subject.fd > 0.5 else 'warn' if subject.fd > 0.3 else '' }}">{{ "%.2f"|format(subject.fd) }}</td>
+                        <td>
+                            {% if subject.n_flagged == 0 %}
+                            <span class="status-dot good"></span>Good
+                            {% elif subject.n_excluded > 0 %}
+                            <span class="status-dot bad"></span>{{ subject.n_excluded }} excluded
+                            {% else %}
+                            <span class="status-dot warn"></span>{{ subject.n_flagged }} flagged
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+</div>
+
+<!-- Run details panel (hidden by default) -->
+<div id="run-details-panel" class="card" style="display: none; position: fixed; right: 20px; top: 100px; width: 350px; z-index: 100;">
+    <div class="card-header">
+        <h2 id="run-details-title">Run Details</h2>
+        <button onclick="closeDetailsPanel()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer;">&times;</button>
+    </div>
+    <div id="run-details-grid" class="detail-grid"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Study data for JavaScript
+const studyData = {{ study_data_json|safe }};
+</script>
+{% endblock %}

@@ -18,7 +18,7 @@
     {% set flag_badge = "<span class='flag flag-danger'>✗ " ~ flags ~ " flag(s)</span>" %}
 {% endif %}
 
-<details id="run-details-{{ run_id_html }}">
+<details id="run-details-{{ run_id_html }}" class="run-row" data-run-id="{{ run_id_html }}" data-session="{{ session_label }}" data-flags="{{ flags }}">
     <summary class="run-summary">
         <span>{{ run_label }}</span>
         <span class="session-meta">{{ flag_badge | safe }}</span>
