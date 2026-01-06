@@ -417,6 +417,16 @@ class RunResultSerializer:
         if result.thumbnail_path is not None:
             thumb_dest = _copy_asset(result.thumbnail_path, run_dir / result.thumbnail_path.name)
 
+        # Copy spatial map assets from original asset_paths
+        spatial_map_dests: Dict[str, Path] = {}
+        for key, path in result.asset_paths.items():
+            if key.startswith('spatial_map_') and path is not None:
+                path_obj = Path(path) if not isinstance(path, Path) else path
+                if path_obj.exists():
+                    dest = _copy_asset(path_obj, run_dir / path_obj.name)
+                    if dest is not None:
+                        spatial_map_dests[key] = dest
+
         # Update result paths
         if figure_dest is not None:
             result.figure_path = figure_dest
@@ -439,6 +449,9 @@ class RunResultSerializer:
             asset_paths["carpetplot"] = _relative_path(carpet_dest, output_root)
         if thumb_dest is not None:
             asset_paths["thumbnail"] = _relative_path(thumb_dest, output_root)
+        # Include spatial map paths
+        for key, path in spatial_map_dests.items():
+            asset_paths[key] = _relative_path(path, output_root)
 
         result.asset_paths = asset_paths
 

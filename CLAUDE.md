@@ -98,3 +98,7 @@ Tests use synthetic data via pytest fixtures in `conftest.py`:
 - `snake_case` for functions/variables, `PascalCase` for classes
 - Line length: 100 chars (black with `--line-length 100`)
 - Python 3.8+ compatibility
+
+## Open Tasks
+
+See [TODO.md](TODO.md) for current open tasks, bugs, and planned improvements.
