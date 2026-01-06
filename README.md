@@ -206,19 +206,6 @@ Key areas for contribution:
 
 MIT License - see [LICENSE](LICENSE) file for details.
 
-## 📚 Citation
-
-If you use fmriqa in your research, please cite:
-
-```bibtex
-@software{fmriqa2024,
-  title = {fmriqa: Quality Assurance Pipeline for fMRI Preprocessing},
-  author = {[Your Name]},
-  year = {2024},
-  url = {https://github.com/andropar/fmriqc}
-}
-```
-
 ## 🔗 Related Projects
 
 - [fMRIPrep](https://fmriprep.org/) - Robust preprocessing pipeline

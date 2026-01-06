@@ -67,12 +67,16 @@ src/fmriqa/
 │   └── exclusions.py  # Exclusion recommendations
 ├── reporting/         # HTML generation
 │   ├── reporting.py   # Main report generation
-│   └── report_components/  # Jinja2 helpers
+│   ├── report_components/  # Jinja2 helpers
+│   ├── static/        # CSS, JS assets
+│   └── templates/     # Jinja2 HTML templates
+├── visualization/     # Figure generation
+│   └── visualization.py  # Plots and spatial maps
 ├── io/                # I/O operations
 │   ├── io.py          # File operations, caching
 │   ├── manifest.py    # Manifest file parsing
 │   └── structures.py  # Data classes
-└── visualization/     # Figure generation
+└── motion_generation.py  # Motion parameter generation
 ```
 
 ### Configuration
