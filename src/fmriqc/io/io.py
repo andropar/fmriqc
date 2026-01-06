@@ -519,6 +519,12 @@ class RunResultSerializer:
             else:
                 series_path = None
 
+        # Resolve spatial map paths and build asset_paths dict for result
+        resolved_asset_paths: Dict[str, Path] = {}
+        for key, rel_path in asset_paths.items():
+            if rel_path is not None:
+                resolved_asset_paths[key] = source_root / rel_path
+
         # Create RunResult
         result = RunResult(
             info=info,
@@ -540,6 +546,7 @@ class RunResultSerializer:
             file_mtime=metadata.get("file_mtime", 0.0),
             processing_time=metadata.get("processing_time", 0.0),
             series_path=series_path,
+            asset_paths=resolved_asset_paths,
         )
 
         return result

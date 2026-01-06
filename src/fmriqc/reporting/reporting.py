@@ -229,7 +229,16 @@ def prepare_subject_data(subject: SubjectResults, output_dir: Path, assets_base:
                 if key.startswith('spatial_map_'):
                     map_type = key.replace('spatial_map_', '')
                     if path:
-                        spatial_maps[map_type] = prefix + str(path)
+                        path_obj = Path(path) if not isinstance(path, Path) else path
+                        # Make absolute paths relative to assets_base
+                        if assets_base and path_obj.is_absolute():
+                            try:
+                                path = str(path_obj.relative_to(assets_base))
+                            except ValueError:
+                                path = str(path)
+                        else:
+                            path = str(path)
+                        spatial_maps[map_type] = prefix + path
 
             runs_data.append({
                 'id': run_id,
