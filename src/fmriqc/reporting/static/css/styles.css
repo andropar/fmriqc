@@ -243,11 +243,14 @@ header a:hover { text-decoration: underline; }
     position: relative;
     text-align: center;
     min-height: 220px;
+    min-width: 0; /* Prevent grid blowout */
+    overflow: hidden;
 }
 
 .distribution-plot svg {
+    display: block;
     width: 100%;
-    max-width: 100%;
+    height: auto;
 }
 
 /* Main content layout */
