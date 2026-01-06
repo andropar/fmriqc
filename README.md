@@ -5,7 +5,7 @@
 
 > **Disclaimer:** Large portions of this codebase were AI-generated and have not been fully manually reviewed. Please verify correctness before using in production or for published research.
 
-**fmriqa** is a comprehensive quality assurance pipeline for fMRI preprocessing outputs. It generates interactive HTML reports with detailed metrics, visualizations, and automated outlier detection to help you assess and improve data quality.
+**fmriqc** is a comprehensive quality assurance pipeline for fMRI preprocessing outputs. It generates interactive HTML reports with detailed metrics, visualizations, and automated outlier detection to help you assess and improve data quality.
 
 ## ✨ Key Features
 
@@ -176,8 +176,10 @@ src/fmriqa/
 │   └── constants.py        # Threshold and constant definitions
 ├── reporting/              # Report generation
 │   ├── reporting.py        # HTML report generation
-│   ├── visualization.py    # Figure creation
-│   └── report_components/  # Templates, CSS, JS
+│   ├── static/             # CSS, JS assets
+│   └── templates/          # Jinja2 HTML templates
+├── visualization/          # Figure creation
+│   └── visualization.py    # Plots and spatial maps
 ├── analysis/               # Quality analysis
 │   ├── outliers.py         # Outlier detection
 │   ├── exclusions.py       # Exclusion recommendations
@@ -213,7 +215,7 @@ If you use fmriqa in your research, please cite:
   title = {fmriqa: Quality Assurance Pipeline for fMRI Preprocessing},
   author = {[Your Name]},
   year = {2024},
-  url = {https://github.com/andropar/fmriqa}
+  url = {https://github.com/andropar/fmriqc}
 }
 ```
 
@@ -223,12 +225,6 @@ If you use fmriqa in your research, please cite:
 - [MRIQC](https://mriqc.readthedocs.io/) - Image quality metrics
 - [tedana](https://tedana.readthedocs.io/) - Multi-echo denoising
 - [GLMsingle](https://github.com/cvnlab/GLMsingle) - Single-trial GLM estimation
-
-## 📞 Support
-
-- **Issues**: [GitHub Issues](https://github.com/andropar/fmriqa/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/andropar/fmriqa/discussions)
-- **Email**: [your.email@example.com]
 
 ---
 
