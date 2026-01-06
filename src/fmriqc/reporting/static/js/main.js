@@ -86,12 +86,19 @@ function updateDistributions() {
     const visibleSubjectCount = visibleSubjects.size;
     const useGrouped = visibleSubjectCount > 1 && visibleSubjectCount <= 10;
 
+    // Calculate fixed width based on number of subjects
+    // ~60px per subject + margins, min 200px, max 600px
+    const plotWidth = useGrouped
+        ? Math.max(200, Math.min(600, visibleSubjectCount * 60 + 80))
+        : 200;
+
     activeMetrics.forEach(metricKey => {
         const metricInfo = studyData.metricInfo[metricKey];
         if (!metricInfo) return;
 
         const container = document.createElement('div');
         container.className = 'distribution-plot';
+        container.style.width = `${plotWidth}px`;
         grid.appendChild(container);
 
         if (useGrouped && typeof createGroupedBoxPlot === 'function') {
