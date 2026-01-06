@@ -34,6 +34,12 @@
 
 <!-- Quality bar -->
 <section class="quality-section">
+    <div class="quality-header" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
+        <span style="font-weight: 600;">Quality Overview</span>
+        <button class="threshold-settings-btn" onclick="openThresholdModal()" title="Adjust quality thresholds" style="background: none; border: 1px solid #ccc; border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 14px;">
+            ⚙ Thresholds
+        </button>
+    </div>
     <div class="quality-bar-container">
         <div class="quality-bar">
             <div class="good" style="width: {{ quality.good_percent }}%"></div>
@@ -158,6 +164,56 @@
     <div id="run-details-grid" class="detail-grid"></div>
 </div>
 {% endblock %}
+
+<!-- Threshold settings modal -->
+<div id="thresholdModal" class="modal-overlay" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+    <div class="modal" style="background: white; border-radius: 8px; padding: 20px; max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto;">
+        <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <h2 style="margin: 0; font-size: 1.25rem;">Quality Thresholds</h2>
+            <button onclick="closeThresholdModal()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; line-height: 1;">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p style="color: #666; font-size: 0.9rem; margin-bottom: 16px;">Adjust thresholds to customize quality flagging. Changes are saved locally.</p>
+
+            <div class="threshold-presets" style="margin-bottom: 16px;">
+                <span style="margin-right: 8px; font-weight: 500;">Presets:</span>
+                <button class="preset-btn" onclick="applyPreset('strict')" style="padding: 4px 12px; margin-right: 4px; border: 1px solid #ddd; border-radius: 4px; background: #f5f5f5; cursor: pointer;">Strict</button>
+                <button class="preset-btn active" onclick="applyPreset('moderate')" style="padding: 4px 12px; margin-right: 4px; border: 1px solid #3b82f6; border-radius: 4px; background: #eff6ff; color: #3b82f6; cursor: pointer;">Moderate</button>
+                <button class="preset-btn" onclick="applyPreset('lenient')" style="padding: 4px 12px; border: 1px solid #ddd; border-radius: 4px; background: #f5f5f5; cursor: pointer;">Lenient</button>
+            </div>
+
+            <div class="threshold-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 16px;">
+                <div class="threshold-item">
+                    <label style="display: block; font-size: 0.85rem; margin-bottom: 4px;">tSNR (min)</label>
+                    <input type="number" id="thresh-tsnr" data-metric="tsnr_median" data-direction="above" step="1" min="0" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px;">
+                    <span style="font-size: 0.75rem; color: #888;">Flag if below</span>
+                </div>
+                <div class="threshold-item">
+                    <label style="display: block; font-size: 0.85rem; margin-bottom: 4px;">FD median (max)</label>
+                    <input type="number" id="thresh-fd" data-metric="fd_median" data-direction="below" step="0.05" min="0" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px;">
+                    <span style="font-size: 0.75rem; color: #888;">Flag if above</span>
+                </div>
+                <div class="threshold-item">
+                    <label style="display: block; font-size: 0.85rem; margin-bottom: 4px;">DVARS std (max)</label>
+                    <input type="number" id="thresh-dvars" data-metric="dvars_std_median" data-direction="below" step="0.1" min="0" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px;">
+                    <span style="font-size: 0.75rem; color: #888;">Flag if above</span>
+                </div>
+                <div class="threshold-item">
+                    <label style="display: block; font-size: 0.85rem; margin-bottom: 4px;">Coverage (min)</label>
+                    <input type="number" id="thresh-coverage" data-metric="coverage" data-direction="above" step="0.01" min="0" max="1" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px;">
+                    <span style="font-size: 0.75rem; color: #888;">Flag if below</span>
+                </div>
+            </div>
+
+            <div class="threshold-actions" style="display: flex; justify-content: flex-end; gap: 8px; padding-top: 12px; border-top: 1px solid #eee;">
+                <button onclick="resetThresholds()" style="padding: 8px 16px; border: 1px solid #ddd; border-radius: 4px; background: white; cursor: pointer;">Reset</button>
+                <button onclick="applyAndRefresh()" style="padding: 8px 16px; border: none; border-radius: 4px; background: #3b82f6; color: white; cursor: pointer;">Apply</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="thresholdToast" style="display: none; position: fixed; bottom: 20px; right: 20px; padding: 12px 20px; background: #333; color: white; border-radius: 4px; z-index: 1001;"></div>
 
 {% block scripts %}
 <script>

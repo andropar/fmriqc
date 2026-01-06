@@ -384,6 +384,7 @@ function createScatterPlot(container, data, config) {
  * Create vertical timeline with connected dots - properly column-aligned
  * Now includes integrated header in SVG for perfect alignment
  * Columns expand to fill available container width
+ * Axes are rendered in a separate sticky container at the bottom
  */
 function createVerticalTimeline(container, runs, metrics, config = {}) {
     const {
@@ -391,7 +392,7 @@ function createVerticalTimeline(container, runs, metrics, config = {}) {
         minColWidth = 120,
         maxColWidth = 250,
         headerHeight = 30,
-        axisHeight = 25,
+        axisHeight = 28,
         margin = { left: 12, right: 12 }
     } = config;
 
@@ -407,12 +408,23 @@ function createVerticalTimeline(container, runs, metrics, config = {}) {
     const width = metrics.length * colWidth;
 
     const contentHeight = runs.length * rowHeight;
-    const totalHeight = headerHeight + contentHeight + axisHeight;
+    const mainHeight = headerHeight + contentHeight;
 
-    const svg = d3.select(container)
-        .append('svg')
+    // Create wrapper structure for sticky axis behavior
+    const wrapper = d3.select(container)
+        .append('div')
+        .attr('class', 'timeline-wrapper');
+
+    // Main content area
+    const contentDiv = wrapper.append('div')
+        .attr('class', 'timeline-content');
+
+    const svg = contentDiv.append('svg')
         .attr('width', width)
-        .attr('height', totalHeight);
+        .attr('height', mainHeight);
+
+    // Store scales for axis rendering
+    const scales = [];
 
     // For each metric column
     metrics.forEach((metric, colIndex) => {
@@ -424,7 +436,10 @@ function createVerticalTimeline(container, runs, metrics, config = {}) {
         // Get values for this metric
         const values = runs.map(r => r.metrics[metric.key]).filter(v => v != null && !isNaN(v));
 
-        if (values.length === 0) return;
+        if (values.length === 0) {
+            scales.push(null);
+            return;
+        }
 
         // Compute range with padding - handle case where all values are same
         const minVal = d3.min(values);
@@ -437,6 +452,8 @@ function createVerticalTimeline(container, runs, metrics, config = {}) {
             .domain([minVal - padding, maxVal + padding])
             .range([plotLeft, plotRight]);
 
+        scales.push(xScale);
+
         // Create column group
         const colGroup = svg.append('g')
             .attr('class', `metric-col-${colIndex}`);
@@ -446,7 +463,7 @@ function createVerticalTimeline(container, runs, metrics, config = {}) {
             .attr('x', colLeft)
             .attr('y', headerHeight)
             .attr('width', colWidth)
-            .attr('height', contentHeight + axisHeight)
+            .attr('height', contentHeight)
             .attr('fill', colIndex % 2 === 0 ? '#fafafa' : '#ffffff');
 
         // Draw column border
@@ -454,7 +471,7 @@ function createVerticalTimeline(container, runs, metrics, config = {}) {
             .attr('x', colLeft)
             .attr('y', 0)
             .attr('width', colWidth)
-            .attr('height', totalHeight)
+            .attr('height', mainHeight)
             .attr('fill', 'none')
             .attr('stroke', '#e5e7eb')
             .attr('stroke-width', 0.5);
@@ -510,26 +527,6 @@ function createVerticalTimeline(container, runs, metrics, config = {}) {
                     .text(metric.threshold);
             }
         }
-
-        // Draw x-axis at bottom edge (ticks point up, labels inside)
-        const xAxis = d3.axisTop(xScale)
-            .ticks(3)
-            .tickSize(4)
-            .tickFormat(d => {
-                if (Math.abs(d) >= 100) return d.toFixed(0);
-                if (Math.abs(d) >= 1) return d.toFixed(1);
-                return d.toFixed(2);
-            });
-
-        colGroup.append('g')
-            .attr('class', 'x-axis')
-            .attr('transform', `translate(0, ${totalHeight})`)
-            .call(xAxis)
-            .call(g => g.select('.domain').attr('stroke', '#94a3b8'))
-            .call(g => g.selectAll('.tick line').attr('stroke', '#94a3b8'))
-            .call(g => g.selectAll('.tick text')
-                .attr('font-size', '9px')
-                .attr('fill', '#64748b'));
 
         // Prepare line data - only valid values
         const lineData = [];
@@ -616,6 +613,60 @@ function createVerticalTimeline(container, runs, metrics, config = {}) {
             });
     });
 
+    // Create sticky axis container at bottom
+    const axisDiv = wrapper.append('div')
+        .attr('class', 'timeline-axis-sticky');
+
+    const axisSvg = axisDiv.append('svg')
+        .attr('width', width)
+        .attr('height', axisHeight);
+
+    // Render axes for each column
+    metrics.forEach((metric, colIndex) => {
+        const xScale = scales[colIndex];
+        if (!xScale) return;
+
+        const colLeft = colIndex * colWidth;
+
+        // Column background for axis
+        axisSvg.append('rect')
+            .attr('x', colLeft)
+            .attr('y', 0)
+            .attr('width', colWidth)
+            .attr('height', axisHeight)
+            .attr('fill', colIndex % 2 === 0 ? '#fafafa' : '#ffffff');
+
+        // Column border
+        axisSvg.append('rect')
+            .attr('x', colLeft)
+            .attr('y', 0)
+            .attr('width', colWidth)
+            .attr('height', axisHeight)
+            .attr('fill', 'none')
+            .attr('stroke', '#e5e7eb')
+            .attr('stroke-width', 0.5);
+
+        // Draw x-axis (ticks point up, labels inside)
+        const xAxis = d3.axisTop(xScale)
+            .ticks(3)
+            .tickSize(4)
+            .tickFormat(d => {
+                if (Math.abs(d) >= 100) return d.toFixed(0);
+                if (Math.abs(d) >= 1) return d.toFixed(1);
+                return d.toFixed(2);
+            });
+
+        axisSvg.append('g')
+            .attr('class', 'x-axis')
+            .attr('transform', `translate(0, ${axisHeight})`)
+            .call(xAxis)
+            .call(g => g.select('.domain').attr('stroke', '#94a3b8'))
+            .call(g => g.selectAll('.tick line').attr('stroke', '#94a3b8'))
+            .call(g => g.selectAll('.tick text')
+                .attr('font-size', '9px')
+                .attr('fill', '#64748b'));
+    });
+
     return { colWidth, headerHeight };
 }
 
@@ -652,7 +703,212 @@ function hideTooltip() {
     }
 }
 
+/**
+ * Create a grouped box plot with subjects on x-axis
+ * Shows distribution per subject for multi-subject datasets
+ */
+function createGroupedBoxPlot(container, runs, config) {
+    const {
+        metric,
+        threshold = null,
+        thresholdDirection = 'lower'
+    } = config;
+
+    // Clear previous
+    d3.select(container).selectAll('*').remove();
+
+    // Get container dimensions
+    const containerRect = container.getBoundingClientRect();
+    const containerWidth = containerRect.width || 400;
+
+    // Group data by subject
+    const bySubject = {};
+    runs.forEach(run => {
+        const subj = run.subject || 'Unknown';
+        const value = run.metrics[metric];
+        if (value != null && !isNaN(value)) {
+            if (!bySubject[subj]) bySubject[subj] = [];
+            bySubject[subj].push(value);
+        }
+    });
+
+    const subjects = Object.keys(bySubject).sort();
+    if (subjects.length === 0) {
+        d3.select(container).append('div')
+            .style('text-align', 'center')
+            .style('color', '#999')
+            .style('padding', '20px')
+            .text('No data');
+        return;
+    }
+
+    // Calculate dimensions based on number of subjects
+    const boxWidth = Math.min(60, Math.max(30, (containerWidth - 80) / subjects.length - 10));
+    const width = Math.max(containerWidth, subjects.length * (boxWidth + 15) + 80);
+    const height = 220;
+    const margin = { top: 35, right: 15, bottom: 50, left: 50 };
+    const innerWidth = width - margin.left - margin.right;
+    const innerHeight = height - margin.top - margin.bottom;
+
+    const svg = d3.select(container)
+        .append('svg')
+        .attr('width', width)
+        .attr('height', height)
+        .style('overflow', 'visible');
+
+    const g = svg.append('g')
+        .attr('transform', `translate(${margin.left},${margin.top})`);
+
+    // Compute global y range
+    const allValues = runs.map(r => r.metrics[metric]).filter(v => v != null && !isNaN(v));
+    const yMin = d3.min(allValues);
+    const yMax = d3.max(allValues);
+    const yPadding = (yMax - yMin) * 0.15 || 0.1;
+
+    const yScale = d3.scaleLinear()
+        .domain([yMin - yPadding, yMax + yPadding])
+        .range([innerHeight, 0]);
+
+    const xScale = d3.scaleBand()
+        .domain(subjects)
+        .range([0, innerWidth])
+        .padding(0.3);
+
+    // Draw threshold zone if provided
+    if (threshold != null) {
+        const threshY = yScale(threshold);
+        if (threshY >= 0 && threshY <= innerHeight) {
+            const badZoneY = thresholdDirection === 'lower' ? threshY : 0;
+            const badZoneHeight = thresholdDirection === 'lower' ? innerHeight - threshY : threshY;
+
+            g.append('rect')
+                .attr('x', 0)
+                .attr('y', badZoneY)
+                .attr('width', innerWidth)
+                .attr('height', badZoneHeight)
+                .attr('fill', '#fef2f2')
+                .attr('opacity', 0.5);
+
+            g.append('line')
+                .attr('x1', 0)
+                .attr('x2', innerWidth)
+                .attr('y1', threshY)
+                .attr('y2', threshY)
+                .attr('stroke', '#ef4444')
+                .attr('stroke-width', 1.5)
+                .attr('stroke-dasharray', '4,3');
+        }
+    }
+
+    // Draw box plot for each subject
+    subjects.forEach((subj, idx) => {
+        const values = bySubject[subj];
+        const sorted = [...values].sort((a, b) => a - b);
+        const q1 = d3.quantile(sorted, 0.25);
+        const median = d3.quantile(sorted, 0.5);
+        const q3 = d3.quantile(sorted, 0.75);
+        const iqr = q3 - q1;
+        const min = d3.min(values);
+        const max = d3.max(values);
+        const lowerWhisker = Math.max(min, q1 - 1.5 * iqr);
+        const upperWhisker = Math.min(max, q3 + 1.5 * iqr);
+
+        const centerX = xScale(subj) + xScale.bandwidth() / 2;
+        const bw = Math.min(boxWidth, xScale.bandwidth());
+
+        // Whiskers
+        g.append('line')
+            .attr('x1', centerX).attr('x2', centerX)
+            .attr('y1', yScale(lowerWhisker)).attr('y2', yScale(upperWhisker))
+            .attr('stroke', '#94a3b8').attr('stroke-width', 1);
+
+        // Whisker caps
+        g.append('line')
+            .attr('x1', centerX - bw/4).attr('x2', centerX + bw/4)
+            .attr('y1', yScale(lowerWhisker)).attr('y2', yScale(lowerWhisker))
+            .attr('stroke', '#94a3b8');
+        g.append('line')
+            .attr('x1', centerX - bw/4).attr('x2', centerX + bw/4)
+            .attr('y1', yScale(upperWhisker)).attr('y2', yScale(upperWhisker))
+            .attr('stroke', '#94a3b8');
+
+        // Box
+        const color = colorPalette[idx % colorPalette.length];
+        g.append('rect')
+            .attr('x', centerX - bw/2)
+            .attr('y', yScale(q3))
+            .attr('width', bw)
+            .attr('height', Math.max(1, yScale(q1) - yScale(q3)))
+            .attr('fill', color + '33')
+            .attr('stroke', color)
+            .attr('stroke-width', 1.5)
+            .attr('rx', 2);
+
+        // Median line
+        g.append('line')
+            .attr('x1', centerX - bw/2).attr('x2', centerX + bw/2)
+            .attr('y1', yScale(median)).attr('y2', yScale(median))
+            .attr('stroke', color).attr('stroke-width', 2);
+
+        // Individual points with jitter
+        const jitter = bw * 0.3;
+        g.selectAll(`.point-${idx}`)
+            .data(values)
+            .enter()
+            .append('circle')
+            .attr('cx', () => centerX + (Math.random() - 0.5) * jitter)
+            .attr('cy', d => yScale(d))
+            .attr('r', 3)
+            .attr('fill', d => {
+                if (threshold == null) return color;
+                const isBad = thresholdDirection === 'lower' ? d < threshold : d > threshold;
+                return isBad ? '#ef4444' : color;
+            })
+            .attr('stroke', '#fff')
+            .attr('stroke-width', 0.5)
+            .attr('opacity', 0.7)
+            .on('mouseover', function(event, d) {
+                d3.select(this).attr('r', 5).attr('opacity', 1);
+                showTooltip(event, `${subj}: ${d.toFixed(3)}`);
+            })
+            .on('mouseout', function() {
+                d3.select(this).attr('r', 3).attr('opacity', 0.7);
+                hideTooltip();
+            });
+    });
+
+    // Y axis
+    g.append('g')
+        .call(d3.axisLeft(yScale).ticks(5).tickSize(-innerWidth).tickFormat(d => d.toFixed(1)))
+        .call(g => g.select('.domain').remove())
+        .call(g => g.selectAll('.tick line').attr('stroke', '#e5e7eb').attr('stroke-dasharray', '2,2'))
+        .call(g => g.selectAll('.tick text').attr('font-size', '10px').attr('fill', '#64748b'));
+
+    // X axis (subjects)
+    g.append('g')
+        .attr('transform', `translate(0,${innerHeight})`)
+        .call(d3.axisBottom(xScale))
+        .call(g => g.select('.domain').attr('stroke', '#cbd5e1'))
+        .call(g => g.selectAll('.tick text')
+            .attr('font-size', '10px')
+            .attr('fill', '#374151')
+            .attr('transform', subjects.length > 6 ? 'rotate(-35)' : null)
+            .style('text-anchor', subjects.length > 6 ? 'end' : 'middle')
+            .text(d => d.replace('sub-', '')));  // Remove 'sub-' prefix for cleaner display
+
+    // Title
+    svg.append('text')
+        .attr('x', width / 2)
+        .attr('y', 16)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', '12px')
+        .attr('font-weight', '600')
+        .attr('fill', '#1e293b')
+        .text(metric.replace('_', ' '));
+}
+
 // Export functions
 window.createViolinPlot = createViolinPlot;
 window.createScatterPlot = createScatterPlot;
 window.createVerticalTimeline = createVerticalTimeline;
+window.createGroupedBoxPlot = createGroupedBoxPlot;

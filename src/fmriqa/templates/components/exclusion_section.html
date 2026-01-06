@@ -1,6 +1,11 @@
 {# Exclusion recommendations section - shows automatic exclusion recommendations #}
 {% if exclusion_data %}
-<h2>Exclusion Recommendations</h2>
+<details class="section-collapsible">
+<summary class="section-header-collapsible">
+    <h2 style="display: inline; margin: 0;">Exclusion Recommendations</h2>
+    <span class="section-summary-badge">{{ exclusion_data.summary.excluded_runs }} exclusions ({{ exclusion_data.summary.exclusion_rate_percent|round(1) }}%)</span>
+</summary>
+<div class="section-content">
 <p class="section-intro">Automatic exclusion recommendations based on configurable quality criteria.</p>
 
 {# Summary statistics #}
@@ -117,4 +122,6 @@
 </details>
 {% endif %}
 
+</div>{# end section-content #}
+</details>
 {% endif %}

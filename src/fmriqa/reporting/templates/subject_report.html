@@ -127,16 +127,6 @@
             <button class="modal-close" onclick="closeModal('detail-modal')">&times;</button>
         </div>
         <div class="modal-body">
-            <!-- Flipbook viewer -->
-            <div class="flipbook-viewer">
-                <div id="flipbook-buttons" class="flipbook-controls">
-                    <!-- Populated by JS -->
-                </div>
-                <div id="flipbook-container">
-                    <img id="flipbook-image" class="flipbook-image" src="" alt="Brain map">
-                </div>
-            </div>
-
             <!-- Metrics grid -->
             <h3>Metrics</h3>
             <div id="detail-metrics-grid" class="detail-grid">
@@ -147,6 +137,17 @@
             <div class="carpet-section">
                 <h3>Time Series (Carpet Plot)</h3>
                 <img id="carpet-image" class="carpet-image" src="" alt="Carpet plot">
+            </div>
+
+            <!-- Spatial maps (flipbook viewer) -->
+            <div class="flipbook-viewer">
+                <h3>Spatial Maps</h3>
+                <div id="flipbook-buttons" class="flipbook-controls">
+                    <!-- Populated by JS -->
+                </div>
+                <div id="flipbook-container">
+                    <img id="flipbook-image" class="flipbook-image" src="" alt="Brain map">
+                </div>
             </div>
 
             <!-- Notes -->

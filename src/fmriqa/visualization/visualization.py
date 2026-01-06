@@ -826,9 +826,12 @@ def _plot_carpet_main(
     ax.set_xticklabels([])
     ax.spines["bottom"].set_visible(False)
 
-    # Colorbar
-    cbar = plt.colorbar(im, ax=ax, fraction=0.015, pad=0.01)
-    cbar.set_label("Z-score", fontsize=9)
+    # Add colorbar as inset within the carpet plot to avoid width differences
+    # with the FD/DVARS panels above
+    cax = ax.inset_axes([0.98, 0.1, 0.015, 0.8])  # [x, y, width, height] in axes coords
+    cbar = plt.colorbar(im, cax=cax)
+    cbar.ax.tick_params(labelsize=7)
+    cbar.set_label("Z", fontsize=8)
 
 
 def _plot_global_signal_trace(

@@ -13,7 +13,7 @@
 
 {% block content %}
 <div class="container">
-    {# Summary cards #}
+    {# Summary cards with inline quality badges #}
     <div class="summary-cards">
         <div class="card">
             <h3>Subjects</h3>
@@ -35,67 +35,53 @@
             <div class="value">{{ "%.3f"|format(study.overall_metrics.fd_median) }}</div>
         </div>
         {% endif %}
+        {# Quality badges inline #}
+        {% if quality_summary and quality_summary.total_runs > 0 %}
+        <div class="card card-quality-summary">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
+                <h3 style="margin: 0;">Quality</h3>
+                <button class="threshold-settings-btn" onclick="openThresholdModal()" title="Adjust quality thresholds">
+                    ⚙
+                </button>
+            </div>
+            <div class="quality-badges-inline">
+                <span class="quality-badge quality-badge-good" title="0 flags raised">{{ quality_summary.good_count }} good</span>
+                <span class="quality-badge quality-badge-warning" title="1-2 flags raised">{{ quality_summary.warning_count }} review</span>
+                <span class="quality-badge quality-badge-bad" title="3+ flags raised">{{ quality_summary.bad_count }} issues</span>
+            </div>
+        </div>
+        {% endif %}
     </div>
 
-    {# Quality dashboard #}
+    {# Quality dashboard - compact version #}
     {% if quality_summary and quality_summary.total_runs > 0 %}
-    <section class="quality-dashboard">
-        <h2 style="margin-top: 0;">Study Quality Overview</h2>
-        <p style="color: var(--muted); margin-bottom: 1.5rem;">
-            Overall quality assessment across {{ quality_summary.total_runs }} run(s)
-        </p>
-
+    <section class="quality-dashboard quality-dashboard-compact">
         {# Quality distribution bar #}
         <div class="quality-bar">
             {% if quality_summary.good_percent > 0 %}
             <div class="segment good" style="width: {{ quality_summary.good_percent }}%">
                 {% if quality_summary.good_percent >= 15 %}
-                {{ "%.0f"|format(quality_summary.good_percent) }}% Good
+                {{ "%.0f"|format(quality_summary.good_percent) }}%
                 {% endif %}
             </div>
             {% endif %}
             {% if quality_summary.warning_percent > 0 %}
             <div class="segment warning" style="width: {{ quality_summary.warning_percent }}%">
                 {% if quality_summary.warning_percent >= 15 %}
-                {{ "%.0f"|format(quality_summary.warning_percent) }}% Review
+                {{ "%.0f"|format(quality_summary.warning_percent) }}%
                 {% endif %}
             </div>
             {% endif %}
             {% if quality_summary.bad_percent > 0 %}
             <div class="segment bad" style="width: {{ quality_summary.bad_percent }}%">
                 {% if quality_summary.bad_percent >= 15 %}
-                {{ "%.0f"|format(quality_summary.bad_percent) }}% Issues
+                {{ "%.0f"|format(quality_summary.bad_percent) }}%
                 {% endif %}
             </div>
             {% endif %}
         </div>
 
-        {# Quality summary cards #}
-        <div class="quality-cards">
-            <div class="card card-good">
-                <h3>Good Quality</h3>
-                <div class="value">{{ quality_summary.good_count }}</div>
-                <p style="margin-top: 0.5rem; color: var(--muted); font-size: 0.85rem;">
-                    0 flags raised
-                </p>
-            </div>
-            <div class="card card-warning">
-                <h3>Needs Review</h3>
-                <div class="value">{{ quality_summary.warning_count }}</div>
-                <p style="margin-top: 0.5rem; color: var(--muted); font-size: 0.85rem;">
-                    1-2 flags raised
-                </p>
-            </div>
-            <div class="card card-bad">
-                <h3>Quality Issues</h3>
-                <div class="value">{{ quality_summary.bad_count }}</div>
-                <p style="margin-top: 0.5rem; color: var(--muted); font-size: 0.85rem;">
-                    3+ flags raised
-                </p>
-            </div>
-        </div>
-
-        {# Recommendations based on quality #}
+        {# Recommendations based on quality - only show if noteworthy #}
         {% if quality_summary.bad_percent >= 20 %}
         <div class="recommendation recommendation-warning">
             <strong>⚠ Attention Required</strong>
@@ -105,16 +91,6 @@
         <div class="recommendation recommendation-info">
             <strong>ℹ Review Suggested</strong>
             <p>{{ "%.0f"|format(quality_summary.bad_percent) }}% of runs have quality issues. Review the outlier and exclusion sections below for detailed recommendations.</p>
-        </div>
-        {% elif quality_summary.good_percent >= 90 %}
-        <div class="recommendation recommendation-success">
-            <strong>✓ Excellent Quality</strong>
-            <p>{{ "%.0f"|format(quality_summary.good_percent) }}% of runs show good quality with no flags raised. Data appears suitable for analysis.</p>
-        </div>
-        {% else %}
-        <div class="recommendation recommendation-info">
-            <strong>ℹ Standard Quality</strong>
-            <p>Most runs show acceptable quality. Review individual runs with flags to determine if exclusion is necessary.</p>
         </div>
         {% endif %}
     </section>
@@ -236,6 +212,66 @@
         {% endfor %}
     </div>
 </div>
+
+    {# Threshold settings modal #}
+    <div id="thresholdModal" class="modal-overlay">
+        <div class="modal threshold-modal">
+            <div class="modal-header">
+                <h2>Quality Thresholds</h2>
+                <button class="modal-close" onclick="closeThresholdModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="section-intro">Adjust thresholds to customize quality flagging. Changes are saved locally and persist across sessions.</p>
+
+                <div class="threshold-presets">
+                    <span>Presets:</span>
+                    <button class="preset-btn" onclick="applyPreset('strict')">Strict</button>
+                    <button class="preset-btn active" onclick="applyPreset('moderate')">Moderate</button>
+                    <button class="preset-btn" onclick="applyPreset('lenient')">Lenient</button>
+                </div>
+
+                <div class="threshold-grid">
+                    <div class="threshold-item">
+                        <label for="thresh-tsnr">tSNR (min)</label>
+                        <input type="number" id="thresh-tsnr" data-metric="tsnr_median" data-direction="above" step="1" min="0">
+                        <span class="threshold-hint">Flag if below this value</span>
+                    </div>
+                    <div class="threshold-item">
+                        <label for="thresh-fd">FD median (max)</label>
+                        <input type="number" id="thresh-fd" data-metric="fd_median" data-direction="below" step="0.05" min="0">
+                        <span class="threshold-hint">Flag if above this value</span>
+                    </div>
+                    <div class="threshold-item">
+                        <label for="thresh-dvars">DVARS std (max)</label>
+                        <input type="number" id="thresh-dvars" data-metric="dvars_std_median" data-direction="below" step="0.1" min="0">
+                        <span class="threshold-hint">Flag if above this value</span>
+                    </div>
+                    <div class="threshold-item">
+                        <label for="thresh-coverage">Coverage (min)</label>
+                        <input type="number" id="thresh-coverage" data-metric="coverage" data-direction="above" step="0.01" min="0" max="1">
+                        <span class="threshold-hint">Flag if below this value</span>
+                    </div>
+                    <div class="threshold-item">
+                        <label for="thresh-outlier-pct">Outlier % (max)</label>
+                        <input type="number" id="thresh-outlier-pct" data-metric="outlier_percent_above" data-direction="below" step="1" min="0" max="100">
+                        <span class="threshold-hint">Flag if above this value</span>
+                    </div>
+                    <div class="threshold-item">
+                        <label for="thresh-fd-pct">FD % above 0.5 (max)</label>
+                        <input type="number" id="thresh-fd-pct" data-metric="fd_percent_above" data-direction="below" step="1" min="0" max="100">
+                        <span class="threshold-hint">Flag if above this value</span>
+                    </div>
+                </div>
+
+                <div class="threshold-actions">
+                    <button class="btn btn-secondary" onclick="resetThresholds()">Reset to Defaults</button>
+                    <button class="btn btn-primary" onclick="applyAndRefresh()">Apply & Refresh</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="thresholdToast" class="threshold-toast"></div>
 {% endblock %}
 
 {% block extra_scripts %}

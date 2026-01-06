@@ -48,6 +48,20 @@ def load_static_file(filename: str) -> str:
     return ''
 
 
+def make_style_tag(content: str) -> str:
+    """Wrap CSS content in a style tag."""
+    if not content:
+        return ''
+    return f'<style>\n{content}\n</style>'
+
+
+def make_script_tag(content: str) -> str:
+    """Wrap JS content in a script tag."""
+    if not content:
+        return ''
+    return f'<script>\n{content}\n</script>'
+
+
 def create_template_env() -> Environment:
     """Create Jinja2 environment with template directory."""
     return Environment(
@@ -268,6 +282,7 @@ def generate_study_report(
     d3_content = load_static_file('js/vendor/d3.v7.min.js')
     charts_content = load_static_file('js/charts.js')
     main_content = load_static_file('js/main.js')
+    threshold_controls_content = load_static_file('js/threshold_controls.js')
 
     # Compute distributions for medians
     distributions = compute_metric_distributions(study)
@@ -364,6 +379,7 @@ def generate_study_report(
         d3_content=d3_content,
         charts_content=charts_content,
         main_content=main_content,
+        threshold_controls_content=threshold_controls_content,
     )
 
     # Write report
