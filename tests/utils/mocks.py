@@ -143,7 +143,7 @@ def mock_config(overrides: Optional[dict] = None):
     Returns:
         Mock QAConfig object
     """
-    from fmriqa.orchestration.config import QAConfig, PathConfig, ProcessingConfig, ThresholdConfig
+    from fmriqc.orchestration.config import QAConfig, PathConfig, ProcessingConfig, ThresholdConfig
 
     config = QAConfig()
 

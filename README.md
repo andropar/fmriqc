@@ -1,4 +1,4 @@
-# fmriqa
+# fmriqc
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
@@ -34,28 +34,28 @@
 ### Installation
 
 ```bash
-pip install fmriqa
+pip install fmriqc
 ```
 
 ### Basic Usage
 
 ```bash
 # Run QA on preprocessed data
-fmriqa --derivatives-dir /path/to/derivatives --data-source tedana --n-jobs 4
+fmriqc --derivatives-dir /path/to/derivatives --data-source tedana --n-jobs 4
 
 # Using a manifest for custom directory structures
-fmriqa --manifest manifest.yaml --n-jobs 4
+fmriqc --manifest manifest.yaml --n-jobs 4
 
 # Generate motion parameters if missing (requires Docker or Singularity)
-fmriqa --manifest manifest.yaml --generate-motion --n-jobs 2
+fmriqc --manifest manifest.yaml --generate-motion --n-jobs 2
 ```
 
 ### Python API
 
 ```python
 from pathlib import Path
-from fmriqa.orchestration.config import QAConfig
-from fmriqa.orchestration.orchestration import run_qa
+from fmriqc.orchestration.config import QAConfig
+from fmriqc.orchestration.orchestration import run_qa
 
 config = QAConfig.from_yaml("qa_config.yaml")
 results = run_qa(config)
@@ -131,7 +131,7 @@ See [docs/METRICS.md](docs/METRICS.md) for detailed descriptions and references.
 If motion parameters are not available from preprocessing:
 
 ```bash
-fmriqa --manifest manifest.yaml --generate-motion --n-jobs 2
+fmriqc --manifest manifest.yaml --generate-motion --n-jobs 2
 ```
 
 Requires Docker (macOS/Windows) or Singularity/Apptainer (HPC). See [docs/MOTION_GENERATION.md](docs/MOTION_GENERATION.md) for details.
@@ -139,7 +139,7 @@ Requires Docker (macOS/Windows) or Singularity/Apptainer (HPC). See [docs/MOTION
 ### Custom Thresholds
 
 ```bash
-fmriqa --derivatives-dir /path/to/data \
+fmriqc --derivatives-dir /path/to/data \
     --fd-threshold 0.5 \
     --dvars-z-threshold 3.0 \
     --tsnr-drop-threshold 0.25 \
@@ -165,7 +165,7 @@ See [docs/MANIFEST.md](docs/MANIFEST.md) for complete format specification.
 ## 📦 Module Structure
 
 ```
-src/fmriqa/
+src/fmriqc/
 ├── orchestration/          # Pipeline orchestration
 │   ├── orchestration.py    # Run discovery and processing
 │   ├── config.py           # Configuration management

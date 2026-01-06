@@ -13,7 +13,7 @@ import json
 import yaml
 from pathlib import Path
 
-from fmriqa.io.manifest import (
+from fmriqc.io.manifest import (
     BIDSEntityExtractor,
     ManifestRun,
     ManifestSession,

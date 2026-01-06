@@ -13,15 +13,15 @@ import numpy as np
 from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
 
-from fmriqa.core.processing import (
+from fmriqc.core.processing import (
     _compute_spatial_metrics,
     _compute_temporal_metrics,
     _compute_quality_flags,
     _create_run_directories,
     process_single_run,
 )
-from fmriqa.io.structures import RunInfo, RunResult
-from fmriqa.orchestration.config import QAConfig
+from fmriqc.io.structures import RunInfo, RunResult
+from fmriqc.orchestration.config import QAConfig
 
 
 # ============================================================================

@@ -15,7 +15,7 @@ import numpy as np
 from unittest.mock import Mock, patch
 from pathlib import Path
 
-from fmriqa.analysis.outliers import (
+from fmriqc.analysis.outliers import (
     LedoitWolfEstimator,
     EmpiricalEstimator,
     DiagonalEstimator,
@@ -29,8 +29,8 @@ from fmriqa.analysis.outliers import (
     flag_low_tsnr,
     generate_outlier_report,
 )
-from fmriqa.io.structures import RunInfo, RunResult
-from fmriqa.core.constants import StatisticalConstants
+from fmriqc.io.structures import RunInfo, RunResult
+from fmriqc.core.constants import StatisticalConstants
 
 
 # ============================================================================

@@ -13,7 +13,7 @@ import numpy as np
 from pathlib import Path
 import tempfile
 
-from fmriqa.core.metrics import (
+from fmriqc.core.metrics import (
     robust_z,
     detrend_poly,
     compute_fd,
@@ -27,7 +27,7 @@ from fmriqa.core.metrics import (
     compute_gcor,
     compute_ar1,
 )
-from fmriqa.core.constants import (
+from fmriqc.core.constants import (
     StatisticalConstants,
     MotionConstants,
     PhysiologicalBands,

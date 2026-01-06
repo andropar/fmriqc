@@ -4,7 +4,7 @@ import pytest
 import numpy as np
 from pathlib import Path
 import nibabel as nib
-from fmriqa.io.structures import RunInfo
+from fmriqc.io.structures import RunInfo
 
 
 @pytest.fixture

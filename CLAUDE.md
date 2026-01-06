@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-fmriqa is a quality assurance pipeline for fMRI preprocessing outputs. It processes 4D BOLD NIfTI files to compute QA metrics (tSNR, DVARS, FD, GCOR, smoothness, etc.), detects outliers, and generates interactive HTML reports.
+fmriqc is a quality assurance pipeline for fMRI preprocessing outputs. It processes 4D BOLD NIfTI files to compute QA metrics (tSNR, DVARS, FD, GCOR, smoothness, etc.), detects outliers, and generates interactive HTML reports.
 
 ## Development Commands
 
@@ -29,7 +29,7 @@ ruff check src/
 black src/ tests/
 
 # Type check
-mypy src/fmriqa
+mypy src/fmriqc
 ```
 
 ## Architecture
@@ -52,7 +52,7 @@ mypy src/fmriqa
 ### Module Layout
 
 ```
-src/fmriqa/
+src/fmriqc/
 ├── orchestration/     # Pipeline coordination
 │   ├── core.py        # Main entry point (run_qa)
 │   ├── orchestration.py # Run discovery and processing

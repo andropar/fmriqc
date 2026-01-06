@@ -14,7 +14,7 @@ import pytest
 import numpy as np
 from pathlib import Path
 
-from fmriqa.analysis.consistency import (
+from fmriqc.analysis.consistency import (
     compute_icc,
     ConsistencyInterpreter,
     compute_split_half_reliability,
@@ -23,7 +23,7 @@ from fmriqa.analysis.consistency import (
     compute_between_run_similarity,
     generate_consistency_report,
 )
-from fmriqa.io.structures import RunInfo, RunResult, SessionResults
+from fmriqc.io.structures import RunInfo, RunResult, SessionResults
 
 
 # ============================================================================

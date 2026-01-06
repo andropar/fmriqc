@@ -14,7 +14,7 @@ import json
 import numpy as np
 from pathlib import Path
 
-from fmriqa.analysis.exclusions import (
+from fmriqc.analysis.exclusions import (
     ExclusionCriterion,
     ExclusionCriteria,
     ExclusionEvaluator,
@@ -30,7 +30,7 @@ from fmriqa.analysis.exclusions import (
     export_censor_files,
     generate_methods_text,
 )
-from fmriqa.io.structures import RunInfo, RunResult
+from fmriqc.io.structures import RunInfo, RunResult
 
 
 # ============================================================================

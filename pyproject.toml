@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "fmriqa"
+name = "fmriqc"
 version = "0.1.0"
 description = "Quality assurance pipeline for fMRI preprocessing outputs"
 readme = "README.md"
@@ -65,7 +65,7 @@ docs = [
 ]
 
 [project.scripts]
-fmriqa = "fmriqa.cli:main"
+fmriqc = "fmriqc.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/andropar/fmriqa"
@@ -78,14 +78,14 @@ Changelog = "https://github.com/andropar/fmriqa/blob/main/CHANGELOG.md"
 where = ["src"]
 
 [tool.setuptools.package-data]
-fmriqa = ["report_components/**/*", "templates/**/*", "static/**/*"]
+fmriqc = ["report_components/**/*", "templates/**/*", "static/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --cov=fmriqa --cov-report=html --cov-report=term"
+addopts = "-v --cov=fmriqc --cov-report=html --cov-report=term"
 
 [tool.black]
 line-length = 100

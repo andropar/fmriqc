@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 import tempfile
 import pytest
-from fmriqa.io.structures import StudyResults, SubjectResults, SessionResults, RunResult, RunInfo
-from fmriqa.reporting.reporting import generate_subject_report, generate_study_report
+from fmriqc.io.structures import StudyResults, SubjectResults, SessionResults, RunResult, RunInfo
+from fmriqc.reporting.reporting import generate_subject_report, generate_study_report
 
 
 def create_minimal_run_result(run_id: str) -> RunResult:
@@ -133,7 +133,7 @@ def test_generate_study_report():
         "timestamp": "2025-12-16 16:00:00",
         "data_source": "test",
         "total_runs": 2,
-        "versions": {"fmriqa": "0.1.0"},
+        "versions": {"fmriqc": "0.1.0"},
         "thresholds": {
             "fd_threshold": 0.5,
             "dvars_z_threshold": 3.0,
@@ -174,7 +174,7 @@ def test_generate_study_report():
 
 def test_prepare_outlier_data():
     """Test prepare_outlier_data helper function."""
-    from fmriqa.reporting.reporting import prepare_outlier_data
+    from fmriqc.reporting.reporting import prepare_outlier_data
 
     # Create study with outlier report
     study = StudyResults(
@@ -209,8 +209,8 @@ def test_prepare_outlier_data():
 
 def test_prepare_exclusion_data():
     """Test prepare_exclusion_data helper function."""
-    from fmriqa.reporting.reporting import prepare_exclusion_data
-    from fmriqa.analysis.exclusions import ExclusionReport, RunExclusion, VolumeScrubbing
+    from fmriqc.reporting.reporting import prepare_exclusion_data
+    from fmriqc.analysis.exclusions import ExclusionReport, RunExclusion, VolumeScrubbing
 
     # Create study with exclusion report
     study = StudyResults(
@@ -264,7 +264,7 @@ def test_prepare_exclusion_data():
 
 def test_no_outliers_returns_none():
     """Test that prepare_outlier_data returns None when no outliers."""
-    from fmriqa.reporting.reporting import prepare_outlier_data
+    from fmriqc.reporting.reporting import prepare_outlier_data
 
     study = StudyResults(
         subjects=[],
@@ -287,7 +287,7 @@ def test_no_outliers_returns_none():
 
 def test_no_exclusions_returns_none():
     """Test that prepare_exclusion_data returns None when no report."""
-    from fmriqa.reporting.reporting import prepare_exclusion_data
+    from fmriqc.reporting.reporting import prepare_exclusion_data
 
     study = StudyResults(
         subjects=[],

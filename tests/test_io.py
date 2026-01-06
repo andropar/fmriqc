@@ -12,7 +12,7 @@ import pytest
 import numpy as np
 from pathlib import Path
 
-from fmriqa.io.io import (
+from fmriqc.io.io import (
     extract_entities,
     resolve_subject_session,
     create_run_info,
@@ -23,7 +23,7 @@ from fmriqa.io.io import (
     find_events_file,
     find_fieldmap_data,
 )
-from fmriqa.io.structures import RunInfo
+from fmriqc.io.structures import RunInfo
 
 
 # ============================================================================

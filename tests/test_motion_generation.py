@@ -13,7 +13,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
 import subprocess
 
-from fmriqa.motion_generation import (
+from fmriqc.motion_generation import (
     check_container_runtime,
     get_container_path,
     run_mcflirt,
@@ -130,7 +130,7 @@ class TestGetContainerPath:
         cached_container = fake_default / FSL_CONTAINER_FILENAME
         cached_container.touch()
 
-        monkeypatch.setattr("fmriqa.motion_generation.DEFAULT_CONTAINER_DIR", fake_default)
+        monkeypatch.setattr("fmriqc.motion_generation.DEFAULT_CONTAINER_DIR", fake_default)
 
         result = get_container_path()
         assert result == cached_container
@@ -138,7 +138,7 @@ class TestGetContainerPath:
     def test_download_declined(self, tmp_path, monkeypatch):
         """Test error when download is declined."""
         fake_default = tmp_path / "containers"
-        monkeypatch.setattr("fmriqa.motion_generation.DEFAULT_CONTAINER_DIR", fake_default)
+        monkeypatch.setattr("fmriqc.motion_generation.DEFAULT_CONTAINER_DIR", fake_default)
 
         # Mock user declining download
         with patch('builtins.input', return_value='n'):
@@ -150,7 +150,7 @@ class TestGetContainerPath:
     def test_download_success(self, tmp_path, monkeypatch):
         """Test successful container download."""
         fake_default = tmp_path / "containers"
-        monkeypatch.setattr("fmriqa.motion_generation.DEFAULT_CONTAINER_DIR", fake_default)
+        monkeypatch.setattr("fmriqc.motion_generation.DEFAULT_CONTAINER_DIR", fake_default)
 
         expected_path = fake_default / FSL_CONTAINER_FILENAME
 
@@ -174,7 +174,7 @@ class TestGetContainerPath:
     def test_download_failure_cleanup(self, tmp_path, monkeypatch):
         """Test partial download cleanup on failure."""
         fake_default = tmp_path / "containers"
-        monkeypatch.setattr("fmriqa.motion_generation.DEFAULT_CONTAINER_DIR", fake_default)
+        monkeypatch.setattr("fmriqc.motion_generation.DEFAULT_CONTAINER_DIR", fake_default)
 
         expected_path = fake_default / FSL_CONTAINER_FILENAME
 
