@@ -406,51 +406,31 @@ class RunResultSerializer:
         series_path = run_dir / "series.json"
         self._save_series_json(result, series_path)
 
-        # Copy figure assets
-        figure_dest = None
-        if result.figure_path is not None:
-            figure_dest = _copy_asset(result.figure_path, run_dir / result.figure_path.name)
-        carpet_dest = None
-        if result.carpetplot_path is not None:
-            carpet_dest = _copy_asset(result.carpetplot_path, run_dir / result.carpetplot_path.name)
-        thumb_dest = None
-        if result.thumbnail_path is not None:
-            thumb_dest = _copy_asset(result.thumbnail_path, run_dir / result.thumbnail_path.name)
-
-        # Copy spatial map assets from original asset_paths
-        spatial_map_dests: Dict[str, Path] = {}
+        # Copy all file assets from asset_paths (asset-agnostic approach)
+        copied_assets: Dict[str, Path] = {}
         for key, path in result.asset_paths.items():
-            if key.startswith('spatial_map_') and path is not None:
-                path_obj = Path(path) if not isinstance(path, Path) else path
-                if path_obj.exists():
-                    dest = _copy_asset(path_obj, run_dir / path_obj.name)
-                    if dest is not None:
-                        spatial_map_dests[key] = dest
+            if path is None:
+                continue
+            path_obj = Path(path) if not isinstance(path, Path) else path
+            if path_obj.exists() and path_obj.is_file():
+                dest = _copy_asset(path_obj, run_dir / path_obj.name)
+                if dest is not None:
+                    copied_assets[key] = dest
 
-        # Update result paths
-        if figure_dest is not None:
-            result.figure_path = figure_dest
-        if carpet_dest is not None:
-            result.carpetplot_path = carpet_dest
-        if thumb_dest is not None:
-            result.thumbnail_path = thumb_dest
+        # Update legacy path attributes for backward compatibility
+        result.figure_path = copied_assets.get('figure')
+        result.carpetplot_path = copied_assets.get('carpetplot')
+        result.thumbnail_path = copied_assets.get('thumbnail')
         result.series_path = series_path
 
-        # Build asset paths dict
+        # Build asset_paths with structural entries + all copied file assets
         asset_paths: Dict[str, Path] = {
             "run_dir": _relative_path(run_dir, output_root),
             "arrays": _relative_path(arrays_path, output_root),
             "metadata": _relative_path(run_dir / "result.json", output_root),
             "series": _relative_path(series_path, output_root),
         }
-        if figure_dest is not None:
-            asset_paths["figure"] = _relative_path(figure_dest, output_root)
-        if carpet_dest is not None:
-            asset_paths["carpetplot"] = _relative_path(carpet_dest, output_root)
-        if thumb_dest is not None:
-            asset_paths["thumbnail"] = _relative_path(thumb_dest, output_root)
-        # Include spatial map paths
-        for key, path in spatial_map_dests.items():
+        for key, path in copied_assets.items():
             asset_paths[key] = _relative_path(path, output_root)
 
         result.asset_paths = asset_paths

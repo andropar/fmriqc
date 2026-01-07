@@ -23,7 +23,7 @@
 
 ## Completed (Recent)
 
-- [x] Fix spatial maps not displaying in flipbook (io.py serialize_to_disk wasn't preserving spatial_map_* paths)
+- [x] Fix spatial maps not displaying in flipbook (refactored serialize_to_disk to be asset-agnostic - iterates through all asset_paths entries instead of hardcoding specific keys)
 - [x] Fix SVG viewBox for distribution plots
 - [x] Fix distribution plot sizing in CSS grid
 - [x] Add run modal navigation (prev/next buttons, keyboard shortcuts)
