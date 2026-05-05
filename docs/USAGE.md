@@ -1,70 +1,98 @@
 # Usage Guide
 
-Comprehensive usage examples for fmriqa.
-
-## Basic Examples
-
-### Standard BIDS Dataset
+`fmriqc` has three workflows:
 
 ```bash
-fmriqa --derivatives-dir /path/to/derivatives --data-source tedana --n-jobs 4
+fmriqc assess [options]
+fmriqc compare LEFT_QA_DIR RIGHT_QA_DIR -o OUTPUT
+fmriqc report QA_DIR
 ```
 
-### Custom Manifest
+If no subcommand is provided, arguments are interpreted as `assess` for
+backward compatibility.
+
+## Assess a Snapshot
+
+From a manifest:
 
 ```bash
-fmriqa --manifest my_study.yaml --n-jobs 4
+fmriqc assess --manifest snapshot.yaml -o QA_preproc --n-jobs 4
 ```
 
-## Advanced Examples
-
-### With Motion Generation
+From a derivative directory:
 
 ```bash
-fmriqa --manifest manifest.yaml --generate-motion --n-jobs 2
+fmriqc assess \
+  --derivatives-dir /data/derivatives/fmriprep \
+  --data-source finalinterp \
+  --snapshot-id preproc \
+  --snapshot-label "fMRIPrep output" \
+  --snapshot-source-type preprocessed \
+  -o QA_preproc
 ```
 
-### Custom Thresholds
+Print discovered runs without computing metrics:
 
 ```bash
-fmriqa --derivatives-dir /path/to/data \
-    --fd-threshold 0.5 \
-    --dvars-z-threshold 3.0 \
-    --exclusion-stringency conservative
+fmriqc assess --manifest snapshot.yaml --dry-run
 ```
 
-### Reports Only (Skip Computation)
+## Motion Fallback
+
+Prefer provided motion whenever possible. If a run lacks supported motion input,
+you can ask `fmriqc` to generate MCFLIRT parameters:
 
 ```bash
-fmriqa --reports-only /path/to/existing/QA/20241217_120000
+fmriqc assess --manifest snapshot.yaml --generate-motion --n-jobs 2
+```
+
+Generated motion from already-preprocessed data is a residual realignment
+estimate and is labeled as such in provenance.
+
+## Candidate Review Support
+
+Run-level quality flags are always available in the report and TSV exports.
+Candidate review recommendations and candidate censor vectors are opt-in:
+
+```bash
+fmriqc assess \
+  --manifest snapshot.yaml \
+  --generate-review-recommendations \
+  --exclusion-stringency moderate
+```
+
+These outputs are decision support. Final inclusion and censoring decisions
+remain project policy.
+
+## Compare Two Snapshots
+
+Comparison consumes two completed QA output directories:
+
+```bash
+fmriqc compare \
+  QA_raw/20260505_143000_snapshot-raw \
+  QA_preproc/20260505_151200_snapshot-preproc \
+  -o QA_compare/raw_vs_preproc
+```
+
+Runs are paired by canonical run key, not file path. Duplicate, left-only, and
+right-only runs are reported rather than silently guessed.
+
+## Rebuild Reports
+
+```bash
+fmriqc report QA_preproc/20260505_151200_snapshot-preproc
 ```
 
 ## Python API
 
 ```python
-from pathlib import Path
-from fmriqa.orchestration.config import QAConfig
-from fmriqa.orchestration.orchestration import run_qa
+from fmriqc.orchestration.config import QAConfig
+from fmriqc.orchestration.core import run_assess
 
-# Load config from YAML
 config = QAConfig.from_yaml("qa_config.yaml")
-results = run_qa(config)
-
-# Or create config programmatically
-config = QAConfig(
-    paths=PathConfig(
-        derivatives_dir=Path("/data/derivatives"),
-        output_dir_name="QA",
-    ),
-    processing=ProcessingConfig(
-        n_jobs=4,
-        generate_motion=True,
-    ),
-)
-results = run_qa(config)
+run_assess(config)
 ```
 
-For more details, see:
-- [Manifest Files](MANIFEST.md)
-- [Configuration Options](CONFIGURATION.md)
-- [Motion Generation](MOTION_GENERATION.md)
+See also [SNAPSHOTS.md](SNAPSHOTS.md), [OUTPUTS.md](OUTPUTS.md), and
+[COMPARISON.md](COMPARISON.md).

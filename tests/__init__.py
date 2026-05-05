@@ -1,1 +1,1 @@
-"""Tests for fmriqa."""
+"""Tests for fmriqc."""

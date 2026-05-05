@@ -1,4 +1,4 @@
-"""Tests for exclusion recommendations.
+"""Tests for candidate review recommendations.
 
 This test suite covers exclusion functionality including:
 - Exclusion criterion checking
@@ -9,29 +9,25 @@ This test suite covers exclusion functionality including:
 - Methods text generation
 """
 
-import pytest
 import json
-import numpy as np
 from pathlib import Path
 
+import numpy as np
+import pytest
+
 from fmriqc.analysis.exclusions import (
-    ExclusionCriterion,
     ExclusionCriteria,
+    ExclusionCriterion,
     ExclusionEvaluator,
-    ExclusionReason,
     ExclusionStringency,
-    RunExclusion,
-    VolumeScrubbing,
-    ExclusionReport,
-    evaluate_run_exclusion,
     compute_volume_scrubbing,
-    generate_exclusion_report,
-    export_exclusion_list,
+    evaluate_run_exclusion,
     export_censor_files,
+    export_exclusion_list,
+    generate_exclusion_report,
     generate_methods_text,
 )
 from fmriqc.io.structures import RunInfo, RunResult
-
 
 # ============================================================================
 # Fixtures
@@ -58,7 +54,7 @@ def good_run_result():
         'tsnr_median': 50.0,
         'dvars_percent_above': 3.0,
         'outlier_percent_above': 2.0,
-        'coverage': 0.95,
+        'coverage_signal_fraction': 0.95,
     }
 
     fd_series = np.random.randn(100) * 0.05 + 0.15
@@ -103,7 +99,7 @@ def bad_run_result():
         'tsnr_median': 15.0,  # Low tSNR
         'dvars_percent_above': 30.0,
         'outlier_percent_above': 25.0,
-        'coverage': 0.65,  # Poor coverage
+        'coverage_signal_fraction': 0.65,  # Poor coverage
     }
 
     fd_series = np.random.randn(100) * 0.2 + 0.8
@@ -237,7 +233,7 @@ class TestExclusionEvaluator:
         assert len(evaluator.criteria_list) == 3
         assert any(c.name == 'fd_median' for c in evaluator.criteria_list)
         assert any(c.name == 'tsnr_min' for c in evaluator.criteria_list)
-        assert any(c.name == 'coverage' for c in evaluator.criteria_list)
+        assert any(c.name == 'coverage_signal_fraction' for c in evaluator.criteria_list)
 
     def test_evaluator_skips_none_criteria(self):
         """Test that None criteria are not included."""
@@ -695,7 +691,7 @@ class TestGenerateMethodsText:
 
         assert 'moderate' in text
         assert 'criteria' in text.lower()
-        assert 'excluded' in text.lower()
+        assert 'manual review' in text.lower()
 
     def test_methods_text_includes_criteria(self, good_run_result):
         """Test methods text includes criteria descriptions."""

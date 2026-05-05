@@ -8,21 +8,20 @@ This test suite covers the main processing orchestration including:
 - Results compilation
 """
 
-import pytest
+from unittest.mock import Mock, patch
+
 import numpy as np
-from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
 
 from fmriqc.core.processing import (
+    _compute_quality_flags,
     _compute_spatial_metrics,
     _compute_temporal_metrics,
-    _compute_quality_flags,
     _create_run_directories,
     process_single_run,
 )
-from fmriqc.io.structures import RunInfo, RunResult
+from fmriqc.core.thresholds import ResolvedThresholds
+from fmriqc.io.structures import RunResult
 from fmriqc.orchestration.config import QAConfig
-
 
 # ============================================================================
 # Helper Function Tests
@@ -81,7 +80,7 @@ class TestComputeSpatialMetrics:
 
         # Check required keys
         assert "tsnr_median" in results
-        assert "coverage" in results
+        assert "coverage_signal_fraction" in results
         assert "dvars_std" in results
         assert "dvars_vstd" in results
         assert "dvars_percent" in results
@@ -95,8 +94,8 @@ class TestComputeSpatialMetrics:
         assert "mean" in maps
         assert "std" in maps
         assert "tsnr" in maps
-        assert "cov" in maps
-        assert "dropout" in maps
+        assert "temporal_cov" in maps
+        assert "low_signal" in maps
 
     def test_tsnr_values(self, synthetic_bold_data, brain_mask):
         """Test tSNR computation produces reasonable values."""
@@ -126,9 +125,9 @@ class TestComputeSpatialMetrics:
         )
 
         # Coverage should be between 0 and 1
-        assert 0.0 <= results["coverage"] <= 1.0
+        assert 0.0 <= results["coverage_signal_fraction"] <= 1.0
         # For good synthetic data, coverage should be high
-        assert results["coverage"] > 0.8
+        assert results["coverage_signal_fraction"] > 0.8
 
 
 class TestComputeTemporalMetrics:
@@ -151,8 +150,7 @@ class TestComputeTemporalMetrics:
         # Check required keys
         assert "global_signal" in results
         assert "tr" in results
-        assert "physio_metrics" in results
-        assert "smoothness" in results
+        assert "apparent_smoothness_fwhm" in results
         assert "gcor" in results
         assert "ar1_median" in results
         assert "ar1_brain" in results
@@ -217,7 +215,6 @@ class TestComputeQualityFlags:
             "outlier_percent_above": 3.0,  # Low
             "fd_percent_above": 5.0,  # Low
             "fd_median": 0.2,  # Low
-            "physiological_power_ratio": 0.2,  # Acceptable
             "mask_components": 1,  # Single component
         }
 
@@ -226,7 +223,7 @@ class TestComputeQualityFlags:
             "slice_outliers": np.array([0.05] * 10),
         }
 
-        thresholds = {"fd": 0.5, "dvars_z": 2.5, "outlier": 0.02}
+        thresholds = ResolvedThresholds()
 
         flags = _compute_quality_flags(metrics, thresholds, slice_qc)
 
@@ -238,7 +235,6 @@ class TestComputeQualityFlags:
         assert not flags["hyperintense_slices"]
         assert not flags["slice_outliers"]
         assert not flags["mask_fragmented"]
-        assert not flags["physiological_noise_high"]
 
     def test_tsnr_low_flag(self):
         """Test tSNR low flag."""
@@ -248,7 +244,6 @@ class TestComputeQualityFlags:
             "outlier_percent_above": 3.0,
             "fd_percent_above": 5.0,
             "fd_median": 0.2,
-            "physiological_power_ratio": 0.2,
             "mask_components": 1,
         }
 
@@ -257,7 +252,7 @@ class TestComputeQualityFlags:
             "slice_outliers": np.array([0.05] * 10),
         }
 
-        thresholds = {"fd": 0.5, "dvars_z": 2.5, "outlier": 0.02}
+        thresholds = ResolvedThresholds()
 
         flags = _compute_quality_flags(metrics, thresholds, slice_qc)
 
@@ -271,7 +266,6 @@ class TestComputeQualityFlags:
             "outlier_percent_above": 3.0,
             "fd_percent_above": 25.0,  # High!
             "fd_median": 0.6,  # High!
-            "physiological_power_ratio": 0.2,
             "mask_components": 1,
         }
 
@@ -280,7 +274,7 @@ class TestComputeQualityFlags:
             "slice_outliers": np.array([0.05] * 10),
         }
 
-        thresholds = {"fd": 0.5, "dvars_z": 2.5, "outlier": 0.02}
+        thresholds = ResolvedThresholds()
 
         flags = _compute_quality_flags(metrics, thresholds, slice_qc)
 
@@ -294,7 +288,6 @@ class TestComputeQualityFlags:
             "outlier_percent_above": 3.0,
             "fd_percent_above": 5.0,
             "fd_median": 0.2,
-            "physiological_power_ratio": 0.2,
             "mask_components": 1,
         }
 
@@ -305,7 +298,7 @@ class TestComputeQualityFlags:
             "slice_outliers": np.array([0.05] * 10),
         }
 
-        thresholds = {"fd": 0.5, "dvars_z": 2.5, "outlier": 0.02}
+        thresholds = ResolvedThresholds()
 
         flags = _compute_quality_flags(metrics, thresholds, slice_qc)
 
@@ -320,13 +313,13 @@ class TestComputeQualityFlags:
 class TestProcessSingleRun:
     """Test the main processing function with mocking."""
 
-    @patch('fmriqa.core.processing.create_run_info')
-    @patch('fmriqa.core.processing.nib.load')
-    @patch('fmriqa.core.processing.find_mask_path')
-    @patch('fmriqa.core.processing.locate_motion_params')
-    @patch('fmriqa.core.processing.persist_run_assets')
-    @patch('fmriqa.core.processing.create_run_figure')
-    @patch('fmriqa.core.processing.create_run_thumbnail')
+    @patch('fmriqc.core.processing.create_run_info')
+    @patch('fmriqc.core.processing.nib.load')
+    @patch('fmriqc.core.processing.find_mask_path')
+    @patch('fmriqc.core.processing.locate_motion_params')
+    @patch('fmriqc.core.processing.persist_run_assets')
+    @patch('fmriqc.core.processing.create_run_figure')
+    @patch('fmriqc.core.processing.create_run_thumbnail')
     def test_successful_processing(
         self,
         mock_thumbnail,
@@ -398,14 +391,16 @@ class TestProcessSingleRun:
         # Check series data
         assert "global_signal" in result.series
         assert "dvars_std" in result.series
+        assert "fd" in result.series
+        assert len(result.series["fd"]) == result.metrics["n_volumes"]
 
         # Check maps
         assert "mean" in result.maps
         assert "tsnr" in result.maps
         assert "ar1" in result.maps
 
-    @patch('fmriqa.core.processing.create_run_info')
-    @patch('fmriqa.core.processing.nib.load')
+    @patch('fmriqc.core.processing.create_run_info')
+    @patch('fmriqc.core.processing.nib.load')
     def test_handles_load_error(
         self,
         mock_nib_load,
@@ -430,9 +425,9 @@ class TestProcessSingleRun:
 
         assert result is None
 
-    @patch('fmriqa.core.processing.create_run_info')
-    @patch('fmriqa.core.processing.nib.load')
-    @patch('fmriqa.core.processing.find_mask_path')
+    @patch('fmriqc.core.processing.create_run_info')
+    @patch('fmriqc.core.processing.nib.load')
+    @patch('fmriqc.core.processing.find_mask_path')
     def test_handles_empty_mask(
         self,
         mock_find_mask,

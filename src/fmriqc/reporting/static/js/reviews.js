@@ -3,7 +3,10 @@
  */
 
 let reviewsData = null;
-const REVIEWS_KEY = 'fmriqa_reviews';
+function reviewsStorageKey() {
+    const reportId = subjectData.reportId || subjectData.snapshotId || 'unknown';
+    return `fmriqc_reviews_${reportId}_${subjectData.subject}`;
+}
 
 /**
  * Initialize the review system
@@ -34,7 +37,7 @@ function loadReviews() {
     }
 
     // Fallback to localStorage
-    const stored = localStorage.getItem(REVIEWS_KEY + '_' + subjectData.subject);
+    const stored = localStorage.getItem(reviewsStorageKey());
     if (stored) {
         try {
             reviewsData = JSON.parse(stored);
@@ -60,7 +63,7 @@ function saveReviews(reviews) {
     reviewsData = reviews;
 
     // Save to localStorage as backup
-    localStorage.setItem(REVIEWS_KEY + '_' + subjectData.subject, JSON.stringify(reviews));
+    localStorage.setItem(reviewsStorageKey(), JSON.stringify(reviews));
 
     // Update embedded data for potential download
     if (typeof window.reviewsChanged === 'function') {
@@ -162,7 +165,7 @@ function updateReviewProgress() {
     // Update text
     const progressText = document.querySelector('.review-progress-text');
     if (progressText) {
-        progressText.textContent = `${goodCount} good, ${excludeCount} excluded, ${pendingCount} pending`;
+        progressText.textContent = `${goodCount} good, ${excludeCount} marked review, ${pendingCount} pending`;
     }
 }
 
@@ -194,7 +197,8 @@ function updateNoteIndicators() {
 function downloadReviews() {
     const reviews = getReviews();
     const data = {
-        version: 1,
+        schema_version: 2,
+        snapshot_id: subjectData.snapshotId || 'unknown',
         subject: subjectData.subject,
         exported_at: new Date().toISOString(),
         reviews: reviews
@@ -205,7 +209,7 @@ function downloadReviews() {
 
     const a = document.createElement('a');
     a.href = url;
-    a.download = `qa_reviews_${subjectData.subject}.json`;
+    a.download = `qa_reviews_${subjectData.snapshotId || 'snapshot'}_${subjectData.subject}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -213,24 +217,24 @@ function downloadReviews() {
 }
 
 /**
- * Get summary of exclusions for export
+ * Get summary of manual review flags for export
  */
-function getExclusionSummary() {
+function getReviewFlagSummary() {
     const reviews = getReviews();
-    const excluded = [];
+    const flagged = [];
 
     subjectData.runs.forEach(run => {
         const review = reviews[run.id];
         if (review?.status === 'exclude') {
-            excluded.push({
+            flagged.push({
                 run_id: run.id,
-                reason: review.note || 'Manual exclusion',
-                excluded_at: review.updated_at
+                reason: review.note || 'Manual review flag',
+                flagged_at: review.updated_at
             });
         }
     });
 
-    return excluded;
+    return flagged;
 }
 
 // Export functions
@@ -240,4 +244,4 @@ window.saveReviews = saveReviews;
 window.setReviewStatus = setReviewStatus;
 window.updateReviewButtons = updateReviewButtons;
 window.downloadReviews = downloadReviews;
-window.getExclusionSummary = getExclusionSummary;
+window.getReviewFlagSummary = getReviewFlagSummary;

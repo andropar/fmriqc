@@ -1,1 +1,1 @@
-"""Test utilities for fmriqa."""
+"""Test utilities for fmriqc."""

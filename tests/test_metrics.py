@@ -8,31 +8,23 @@ This test suite ensures correct implementation of all QA metrics including:
 - Statistical utilities (robust_z, detrend_poly)
 """
 
-import pytest
 import numpy as np
-from pathlib import Path
-import tempfile
 
-from fmriqc.core.metrics import (
-    robust_z,
-    detrend_poly,
-    compute_fd,
-    compute_dvars_standardized,
-    compute_slice_quality,
-    assess_brain_mask_quality,
-    detect_physiological_noise,
-    validate_events_file,
-    assess_sdc_quality,
-    compute_smoothness,
-    compute_gcor,
-    compute_ar1,
-)
 from fmriqc.core.constants import (
-    StatisticalConstants,
     MotionConstants,
-    PhysiologicalBands,
+    StatisticalConstants,
 )
-
+from fmriqc.core.metrics import (
+    assess_brain_mask_quality,
+    compute_ar1,
+    compute_dvars_standardized,
+    compute_fd,
+    compute_gcor,
+    compute_slice_quality,
+    compute_smoothness,
+    detrend_poly,
+    robust_z,
+)
 
 # ============================================================================
 # Statistical Utilities Tests
@@ -513,177 +505,3 @@ class TestAssessBrainMaskQuality:
         metrics = assess_brain_mask_quality(mask, data_mean)
         assert metrics['mask_voxel_count'] == 0
         assert metrics['mask_volume_fraction'] == 0.0
-
-
-# ============================================================================
-# Physiological Noise Detection Tests
-# ============================================================================
-
-
-class TestDetectPhysiologicalNoise:
-    """Test physiological noise detection."""
-
-    def test_fast_tr_both_detectable(self):
-        """Test with fast TR where both cardiac and respiratory are detectable."""
-        np.random.seed(42)
-        tr = 0.5  # Fast TR: Nyquist = 1.0 Hz
-        n = 200
-        t = np.arange(n) * tr
-
-        # Create signal with cardiac (0.9 Hz) and respiratory (0.25 Hz)
-        cardiac_freq = 0.9
-        resp_freq = 0.25
-        signal = (
-            np.sin(2 * np.pi * cardiac_freq * t) +
-            np.sin(2 * np.pi * resp_freq * t) +
-            np.random.randn(n) * 0.1
-        )
-
-        metrics = detect_physiological_noise(signal, tr)
-
-        assert metrics['cardiac_detectable'] == True
-        assert metrics['respiratory_detectable'] == True
-        assert metrics['nyquist_freq'] == 1.0
-        # Should detect peaks near expected frequencies
-        assert 0.6 < metrics['cardiac_freq_peak'] < 1.2
-        assert 0.1 < metrics['respiratory_freq_peak'] < 0.4
-
-    def test_slow_tr_neither_detectable(self):
-        """Test with slow TR where neither is detectable."""
-        tr = 4.0  # Very slow TR: Nyquist = 0.125 Hz (below respiratory band 0.15 Hz)
-        signal = np.random.randn(100)
-
-        metrics = detect_physiological_noise(signal, tr)
-
-        assert metrics['cardiac_detectable'] == False
-        assert metrics['respiratory_detectable'] == False
-        assert metrics['cardiac_power'] == 0.0
-        assert metrics['respiratory_power'] == 0.0
-
-    def test_moderate_tr_resp_only(self):
-        """Test with moderate TR where only respiratory is detectable."""
-        tr = 2.0  # Nyquist = 0.25 Hz (just captures respiratory)
-        n = 200
-        signal = np.random.randn(n)
-
-        metrics = detect_physiological_noise(signal, tr)
-
-        assert metrics['cardiac_detectable'] == False
-        assert metrics['respiratory_detectable'] == True
-
-
-# ============================================================================
-# Events File Validation Tests
-# ============================================================================
-
-
-class TestValidateEventsFile:
-    """Test task events file validation."""
-
-    def test_valid_events(self, tmp_path):
-        """Test with valid events file."""
-        events_file = tmp_path / "events.tsv"
-        events_file.write_text(
-            "onset\tduration\ttrial_type\n"
-            "0.0\t2.5\tface\n"
-            "5.0\t2.5\tplace\n"
-            "10.0\t2.5\tface\n"
-        )
-
-        validation = validate_events_file(events_file, n_volumes=100, tr=2.0)
-        assert validation['valid'] == True
-        assert validation['n_events'] == 3
-        assert len(validation['issues']) == 0
-
-    def test_missing_onset_column(self, tmp_path):
-        """Test with missing onset column."""
-        events_file = tmp_path / "events.tsv"
-        events_file.write_text("duration\ttrial_type\n2.5\tface\n")
-
-        validation = validate_events_file(events_file, n_volumes=100, tr=2.0)
-        assert validation['valid'] == False
-        assert 'Missing columns' in validation['issues'][0]
-
-    def test_event_beyond_scan(self, tmp_path):
-        """Test with event extending beyond scan duration."""
-        events_file = tmp_path / "events.tsv"
-        # Scan duration = 100 volumes * 2s = 200s
-        # Event at 195s with 10s duration extends to 205s
-        events_file.write_text(
-            "onset\tduration\ttrial_type\n"
-            "195.0\t10.0\tface\n"
-        )
-
-        validation = validate_events_file(events_file, n_volumes=100, tr=2.0)
-        assert validation['valid'] == False
-        assert any('beyond scan' in issue for issue in validation['issues'])
-
-    def test_negative_onset(self, tmp_path):
-        """Test with negative onset time."""
-        events_file = tmp_path / "events.tsv"
-        events_file.write_text(
-            "onset\ttrial_type\n"
-            "-1.0\tface\n"
-            "5.0\tplace\n"
-        )
-
-        validation = validate_events_file(events_file, n_volumes=100, tr=2.0)
-        assert validation['valid'] == False
-        assert any('Negative onset' in issue for issue in validation['issues'])
-
-    def test_short_intervals(self, tmp_path):
-        """Test detection of suspiciously short intervals."""
-        events_file = tmp_path / "events.tsv"
-        events_file.write_text(
-            "onset\ttrial_type\n"
-            "0.0\tface\n"
-            "0.005\tplace\n"  # Only 5ms later
-        )
-
-        validation = validate_events_file(events_file, n_volumes=100, tr=2.0)
-        assert validation['valid'] == False
-        assert any('short intervals' in issue for issue in validation['issues'])
-
-
-# ============================================================================
-# SDC Quality Assessment Tests
-# ============================================================================
-
-
-class TestAssessSDCQuality:
-    """Test susceptibility distortion correction quality assessment."""
-
-    def test_phasediff_fieldmap(self, tmp_path):
-        """Test with phasediff fieldmap."""
-        fmap_files = {
-            'phasediff': tmp_path / 'phasediff.nii.gz',
-            'magnitude': tmp_path / 'magnitude.nii.gz',
-        }
-
-        metrics = assess_sdc_quality(fmap_files)
-        assert metrics['fieldmap_present'] == True
-        assert metrics['fieldmap_type'] == 'phasediff'
-
-    def test_pepolar_fieldmap(self, tmp_path):
-        """Test with pepolar (opposite phase-encode) fieldmaps."""
-        fmap_files = {
-            'epi_AP': tmp_path / 'epi_AP.nii.gz',
-            'epi_PA': tmp_path / 'epi_PA.nii.gz',
-        }
-
-        metrics = assess_sdc_quality(fmap_files)
-        assert metrics['fieldmap_type'] == 'pepolar'
-
-    def test_single_epi(self, tmp_path):
-        """Test with single EPI fieldmap."""
-        fmap_files = {
-            'epi_AP': tmp_path / 'epi_AP.nii.gz',
-        }
-
-        metrics = assess_sdc_quality(fmap_files)
-        assert metrics['fieldmap_type'] == 'epi_single'
-
-    def test_no_fieldmap(self):
-        """Test with no fieldmap."""
-        metrics = assess_sdc_quality({})
-        assert metrics['fieldmap_type'] == ''

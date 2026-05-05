@@ -15,20 +15,16 @@ References:
 
 import shutil
 import subprocess
-import sys
 import urllib.request
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-import numpy as np
-
-
 # FSL container from Neurodesk
 FSL_DOCKER_IMAGE = "vnmd/fsl_6.0.5.1:20221016"
 FSL_CONTAINER_URL = "https://neurocontainers.neurodesk.org/fsl_6.0.5.1_20221016.simg"
 FSL_CONTAINER_FILENAME = "fsl_6.0.5.1_20221016.simg"
-DEFAULT_CONTAINER_DIR = Path.home() / ".fmriqa" / "containers"
+DEFAULT_CONTAINER_DIR = Path.home() / ".fmriqc" / "containers"
 
 
 class MotionGenerationError(Exception):
@@ -120,9 +116,9 @@ def get_container_path(custom_path: Optional[Path] = None) -> Path:
     print("FSL Container Download Required")
     print("=" * 70)
     print("\nMotion correction requires downloading:")
-    print(f"  - FSL 6.0.5.1 Singularity container")
-    print(f"  - Size: ~1.2 GB")
-    print(f"  - From: neurocontainers.neurodesk.org")
+    print("  - FSL 6.0.5.1 Singularity container")
+    print("  - Size: ~1.2 GB")
+    print("  - From: neurocontainers.neurodesk.org")
     print(f"  - Will be cached at: {container_path}")
     print("\nThis is a one-time download. Future runs will use the cached container.")
     print("=" * 70)
@@ -136,7 +132,7 @@ def get_container_path(custom_path: Optional[Path] = None) -> Path:
         )
 
     # Download container
-    print(f"\nDownloading FSL container...")
+    print("\nDownloading FSL container...")
     print(f"URL: {FSL_CONTAINER_URL}")
     print(f"Destination: {container_path}")
 
@@ -164,7 +160,7 @@ def get_container_path(custom_path: Optional[Path] = None) -> Path:
         # Clean up partial download
         if container_path.exists():
             container_path.unlink()
-        raise MotionGenerationError(f"Failed to download FSL container: {e}")
+        raise MotionGenerationError(f"Failed to download FSL container: {e}") from e
 
     return container_path
 
@@ -191,8 +187,8 @@ def run_mcflirt(
     Raises:
         MotionGenerationError: If mcflirt execution fails.
     """
-    import time
     import platform
+    import time
 
     # Create output directory
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -233,7 +229,7 @@ def run_mcflirt(
         if platform.machine() in ("arm64", "aarch64"):
             cmd.append("--unsquash")
             timeout = 3600  # 1 hour for QEMU emulation
-            print(f"  Note: Running on ARM64 with QEMU emulation - this may take 10-30 minutes per run")
+            print("  Note: Running on ARM64 with QEMU emulation - this may take 10-30 minutes per run")
         else:
             timeout = 300  # 5 minutes for native execution
 
@@ -278,10 +274,10 @@ def run_mcflirt(
 
         return par_file, elapsed
 
-    except subprocess.TimeoutExpired:
-        raise MotionGenerationError(f"mcflirt timed out after {timeout} seconds")
+    except subprocess.TimeoutExpired as e:
+        raise MotionGenerationError(f"mcflirt timed out after {timeout} seconds") from e
     except Exception as e:
-        raise MotionGenerationError(f"mcflirt execution failed: {e}")
+        raise MotionGenerationError(f"mcflirt execution failed: {e}") from e
 
 
 def generate_motion_parameters(
@@ -365,7 +361,7 @@ def generate_motion_parameters(
 
     # Summary
     print(f"\n{'=' * 70}")
-    print(f"Motion generation complete")
+    print("Motion generation complete")
     print(f"  Successful: {len(results)}/{len(runs_needing_motion)}")
     if failed:
         print(f"  Failed: {len(failed)}")

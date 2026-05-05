@@ -1,9 +1,10 @@
-"""Pytest configuration and fixtures for fmriqa tests."""
+"""Pytest configuration and fixtures for fmriqc tests."""
 
-import pytest
-import numpy as np
-from pathlib import Path
+
 import nibabel as nib
+import numpy as np
+import pytest
+
 from fmriqc.io.structures import RunInfo
 
 

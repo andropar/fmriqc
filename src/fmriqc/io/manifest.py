@@ -15,6 +15,9 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import yaml
 
+from fmriqc.io.bids import parse_bids_entities, run_key_from_path
+from fmriqc.io.structures import InputRun, RunKey, SnapshotInfo
+
 
 class BIDSEntityExtractor:
     """Extract BIDS entities from file paths and names."""
@@ -105,6 +108,15 @@ class ManifestRun:
     bold: Path  # Required: path to 4D BOLD NIfTI
     mask: Optional[Path] = None  # Optional: brain mask
     motion: Optional[Path] = None  # Optional: motion parameters file
+    confounds: Optional[Path] = None  # Optional: fMRIPrep confounds TSV
+    subject: Optional[str] = None
+    session: Optional[str] = None
+    task: Optional[str] = None
+    run: Optional[str] = None
+    echo: Optional[str] = None
+    acquisition: Optional[str] = None
+    part: Optional[str] = None
+    motion_format: Optional[str] = None
     label: str = ""  # Optional: run label (e.g., "run-01", "rest", "task-foo")
 
     def to_dict(self) -> Dict:
@@ -113,6 +125,15 @@ class ManifestRun:
             "bold": str(self.bold),
             "mask": str(self.mask) if self.mask else None,
             "motion": str(self.motion) if self.motion else None,
+            "confounds": str(self.confounds) if self.confounds else None,
+            "subject": self.subject,
+            "session": self.session,
+            "task": self.task,
+            "run": self.run,
+            "echo": self.echo,
+            "acquisition": self.acquisition,
+            "part": self.part,
+            "motion_format": self.motion_format,
             "label": self.label,
         }
 
@@ -132,6 +153,15 @@ class ManifestRun:
             bold=resolve_path(data["bold"]),  # type: ignore
             mask=resolve_path(data.get("mask")),
             motion=resolve_path(data.get("motion")),
+            confounds=resolve_path(data.get("confounds")),
+            subject=data.get("subject"),
+            session=data.get("session"),
+            task=data.get("task"),
+            run=data.get("run"),
+            echo=data.get("echo"),
+            acquisition=data.get("acquisition") or data.get("acq"),
+            part=data.get("part"),
+            motion_format=data.get("motion_format"),
             label=data.get("label", ""),
         )
 
@@ -215,9 +245,12 @@ class QAManifest:
     """
 
     subjects: List[ManifestSubject] = field(default_factory=list)
+    runs: List[ManifestRun] = field(default_factory=list)
+    version: int = 1
     name: str = ""
     description: str = ""
     base_path: Optional[Path] = None
+    snapshot: Optional[SnapshotInfo] = None
     qa_config: Optional[Dict] = None  # Optional embedded QA configuration
 
     def to_dict(self) -> Dict:
@@ -225,7 +258,10 @@ class QAManifest:
         result = {
             "name": self.name,
             "description": self.description,
+            "version": self.version,
             "base_path": str(self.base_path) if self.base_path else None,
+            "snapshot": self.snapshot.to_dict() if self.snapshot else None,
+            "runs": [r.to_dict() for r in self.runs],
             "subjects": [s.to_dict() for s in self.subjects],
         }
         if self.qa_config:
@@ -249,10 +285,16 @@ class QAManifest:
             if manifest_path and not base_path.is_absolute():
                 base_path = manifest_path.parent / base_path
 
+        snapshot = SnapshotInfo.from_dict(data.get("snapshot")) if data.get("snapshot") else None
+        runs = [ManifestRun.from_dict(r, base_path) for r in data.get("runs", [])]
+
         return cls(
             name=data.get("name", ""),
             description=data.get("description", ""),
+            version=int(data.get("version", 2 if runs else 1)),
             base_path=base_path,
+            snapshot=snapshot,
+            runs=runs,
             subjects=[
                 ManifestSubject.from_dict(s, base_path)
                 for s in data.get("subjects", [])
@@ -264,7 +306,7 @@ class QAManifest:
     def from_file(cls, path: Union[str, Path]) -> "QAManifest":
         """Load manifest from JSON or YAML file."""
         path = Path(path)
-        with open(path, "r") as f:
+        with open(path) as f:
             if path.suffix in (".yaml", ".yml"):
                 data = yaml.safe_load(f)
             else:
@@ -291,9 +333,13 @@ class QAManifest:
         """
         errors = []
 
-        if not self.subjects:
-            errors.append("Manifest has no subjects")
+        if not self.subjects and not self.runs:
+            errors.append("Manifest has no subjects or runs")
             return errors
+
+        for i, run in enumerate(self.runs):
+            run_id = run.label or run.run or f"run-{i + 1:02d}"
+            errors.extend(self._validate_manifest_run(run, run_id))
 
         for subject in self.subjects:
             if not subject.id:
@@ -318,30 +364,29 @@ class QAManifest:
                 for i, run in enumerate(session.runs):
                     run_id = run.label or f"run-{i + 1:02d}"
 
-                    if run.bold is None:
-                        errors.append(
-                            f"{subject.id}/{session.id}/{run_id}: missing 'bold' path"
-                        )
-                    elif not run.bold.exists():
-                        errors.append(
-                            f"{subject.id}/{session.id}/{run_id}: BOLD file not found: {run.bold}"
-                        )
+                    errors.extend(self._validate_manifest_run(run, f"{subject.id}/{session.id}/{run_id}"))
 
-                    if run.mask and not run.mask.exists():
-                        errors.append(
-                            f"{subject.id}/{session.id}/{run_id}: mask file not found: {run.mask}"
-                        )
+        return errors
 
-                    if run.motion and not run.motion.exists():
-                        errors.append(
-                            f"{subject.id}/{session.id}/{run_id}: motion file not found: {run.motion}"
-                        )
-
+    @staticmethod
+    def _validate_manifest_run(run: ManifestRun, run_id: str) -> List[str]:
+        errors = []
+        if run.bold is None:
+            errors.append(f"{run_id}: missing 'bold' path")
+        elif not run.bold.exists():
+            errors.append(f"{run_id}: BOLD file not found: {run.bold}")
+        if run.mask and not run.mask.exists():
+            errors.append(f"{run_id}: mask file not found: {run.mask}")
+        if run.motion and not run.motion.exists():
+            errors.append(f"{run_id}: motion file not found: {run.motion}")
+        if run.confounds and not run.confounds.exists():
+            errors.append(f"{run_id}: confounds file not found: {run.confounds}")
         return errors
 
     def get_all_bold_paths(self) -> List[Path]:
         """Get list of all BOLD file paths in the manifest."""
         paths = []
+        paths.extend(run.bold for run in self.runs if run.bold)
         for subject in self.subjects:
             for session in subject.sessions:
                 for run in session.runs:
@@ -355,6 +400,76 @@ class QAManifest:
             len(session.runs)
             for subject in self.subjects
             for session in subject.sessions
+        ) + len(self.runs)
+
+    def to_input_runs(self, snapshot: Optional[SnapshotInfo] = None) -> List[InputRun]:
+        """Convert v1/v2 manifest entries to resolved InputRun objects."""
+        resolved_snapshot = snapshot or self.snapshot or SnapshotInfo(
+            id="snapshot",
+            label=self.name,
+            description=self.description,
+            root=self.base_path,
+        )
+
+        input_runs: List[InputRun] = []
+        for run in self.runs:
+            input_runs.append(self._run_to_input_run(run, resolved_snapshot))
+
+        for subject in self.subjects:
+            for session in subject.sessions:
+                for run in session.runs:
+                    legacy = ManifestRun(
+                        bold=run.bold,
+                        mask=run.mask,
+                        motion=run.motion,
+                        confounds=run.confounds,
+                        subject=subject.id,
+                        session=session.id,
+                        label=run.label,
+                    )
+                    input_runs.append(self._run_to_input_run(legacy, resolved_snapshot))
+
+        return input_runs
+
+    @staticmethod
+    def _run_to_input_run(run: ManifestRun, snapshot: SnapshotInfo) -> InputRun:
+        entities = parse_bids_entities(run.bold)
+        try:
+            parsed_key = run_key_from_path(run.bold)
+        except ValueError:
+            parsed_key = RunKey(subject="unknown", session="01", run="01")
+
+        subject = run.subject or entities.get("sub") or parsed_key.subject
+        if subject.startswith("sub-"):
+            subject = subject[4:]
+        session = run.session or entities.get("ses") or parsed_key.session or "01"
+        if session and session.startswith("ses-"):
+            session = session[4:]
+
+        run_value = run.run or entities.get("run")
+        if run_value is None and run.label:
+            run_value = run.label[4:] if run.label.startswith("run-") else run.label
+        if run_value and run_value.startswith("run-"):
+            run_value = run_value[4:]
+
+        run_key = RunKey(
+            subject=subject,
+            session=session,
+            task=run.task or entities.get("task"),
+            run=run_value or parsed_key.run or "01",
+            echo=run.echo or entities.get("echo"),
+            acquisition=run.acquisition or entities.get("acq"),
+            part=run.part or entities.get("part"),
+        )
+        return InputRun(
+            snapshot=snapshot,
+            run_key=run_key,
+            bold_path=run.bold,
+            mask_path=run.mask,
+            motion_path=run.motion,
+            confounds_path=run.confounds,
+            label=run.label,
+            metadata={"motion_format": run.motion_format} if run.motion_format else {},
         )
 
     def summary(self) -> str:

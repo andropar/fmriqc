@@ -8,12 +8,11 @@ This package contains the fundamental QA processing components:
 
 # Constants can be imported without circular dependency issues
 from .constants import (
-    StatisticalConstants,
-    MotionConstants,
     IOConstants,
-    QualityThresholds,
-    PhysiologicalBands,
+    MotionConstants,
     PlotStyle,
+    QualityThresholds,
+    StatisticalConstants,
 )
 
 __all__ = [
@@ -21,6 +20,5 @@ __all__ = [
     "MotionConstants",
     "IOConstants",
     "QualityThresholds",
-    "PhysiologicalBands",
     "PlotStyle",
 ]

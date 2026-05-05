@@ -16,12 +16,11 @@ import numpy as np
 from tqdm import tqdm
 
 from fmriqc.analysis.consistency import generate_consistency_report
+from fmriqc.io.structures import RunResult, StudyResults
 from fmriqc.reporting import (
     generate_study_report,
     generate_subject_report,
-    compute_metric_distributions,
 )
-from fmriqc.io.structures import RunResult, StudyResults
 from fmriqc.visualization.visualization import create_aggregate_maps_figure
 
 
@@ -55,7 +54,7 @@ def compute_average_maps(
     ref_shape = reference_run.maps["mean"].shape
     map_keys = [
         key
-        for key in ["mean", "tsnr", "cov", "dropout", "ar1"]
+        for key in ["mean", "tsnr", "temporal_cov", "low_signal", "ar1"]
         if key in reference_run.maps
     ]
     if not map_keys:
@@ -109,7 +108,7 @@ def save_aggregate_level(
     prefix : str
         Filename prefix (e.g., "sub-01", "sub-01_ses-01", "study")
     map_names : List[str]
-        Names of maps to aggregate (e.g., ["mean", "tsnr", "cov", "dropout", "ar1"])
+        Names of maps to aggregate.
     compute_average_maps_fn : callable
         Function to compute average maps from run_group
 
@@ -209,7 +208,7 @@ def save_aggregate_maps(
         session_key = f"{res.info.subject}_{res.info.session}"
         session_groups[session_key].append(res)
 
-    map_names = ["mean", "tsnr", "cov", "dropout", "ar1"]
+    map_names = ["mean", "tsnr", "temporal_cov", "low_signal", "ar1"]
 
     # Subject-level aggregates
     for subject_id, run_group in subject_groups.items():
@@ -382,11 +381,7 @@ def generate_hierarchical_reports(
     study_aggregate_path : Path, optional
         Path to study-level aggregate figure
     """
-    print("Generating hierarchical reports...")
-
-    # Compute metric distributions once for the whole study (Phase 5)
-    # This is used for percentile context in both study and subject reports
-    metric_distributions = compute_metric_distributions(study)
+    print("Generating snapshot reports...")
 
     # Generate reports for each level
     for subject in tqdm(study.subjects, desc="Subjects"):

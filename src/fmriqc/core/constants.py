@@ -1,13 +1,12 @@
 """Core constants for fMRI QA pipeline.
 
 This module centralizes all magic numbers, thresholds, and configuration
-constants used throughout the fmriqa package. All constants are organized
+constants used throughout the fmriqc package. All constants are organized
 into logical groups and documented with references where applicable.
 """
 
 from dataclasses import dataclass
 from typing import Tuple
-
 
 # === QUALITY THRESHOLDS ===
 
@@ -107,31 +106,6 @@ class MotionConstants:
 
     SPIN_HISTORY_FRAMES = 1
     """Number of frames after motion event to flag (spin history effect)."""
-
-
-# === PHYSIOLOGICAL NOISE ===
-
-class PhysiologicalBands:
-    """Frequency bands for physiological noise detection.
-
-    Defines typical frequency ranges for cardiac and respiratory artifacts
-    in fMRI data.
-    """
-
-    CARDIAC_LOW = 0.67
-    """Lower bound of cardiac frequency band in Hz (~40 bpm)."""
-
-    CARDIAC_HIGH = 1.25
-    """Upper bound of cardiac frequency band in Hz (~75 bpm)."""
-
-    RESPIRATORY_LOW = 0.15
-    """Lower bound of respiratory frequency band in Hz (~9 breaths/min)."""
-
-    RESPIRATORY_HIGH = 0.4
-    """Upper bound of respiratory frequency band in Hz (~24 breaths/min)."""
-
-    SAMPLING_RATE_DEFAULT = 0.5
-    """Default sampling rate in Hz (TR = 2.0 seconds)."""
 
 
 # === VISUALIZATION ===
@@ -305,7 +279,6 @@ __all__ = [
     'QualityThresholds',
     'StatisticalConstants',
     'MotionConstants',
-    'PhysiologicalBands',
     'PlotStyle',
     'IOConstants',
     'ProcessingDefaults',

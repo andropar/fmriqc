@@ -1,88 +1,72 @@
 # Python API Reference
 
-## Main Entry Point
+The command-line interface is the primary interface. The Python API mirrors the
+same snapshot-first workflow.
+
+## Assess
 
 ```python
-from fmriqa.orchestration.orchestration import run_qa
-from fmriqa.orchestration.config import QAConfig
+from fmriqc.orchestration.config import QAConfig
+from fmriqc.orchestration.core import run_assess
 
-config = QAConfig.from_yaml("config.yaml")
-results = run_qa(config)
+config = QAConfig.from_yaml("qa_config.yaml")
+run_assess(config)
 ```
 
-## Configuration
+`run_qa(config)` remains as a compatibility wrapper for `run_assess(config)`.
+
+## Core Structures
 
 ```python
-from fmriqa.orchestration.config import (
-    QAConfig,
-    PathConfig,
-    ProcessingConfig,
-    ThresholdConfig,
-)
+from pathlib import Path
+from fmriqc.io.structures import InputRun, RunKey, SnapshotInfo
 
-config = QAConfig(
-    paths=PathConfig(...),
-    processing=ProcessingConfig(...),
-    thresholds=ThresholdConfig(...),
-)
-```
-
-## Manifest Generation
-
-```python
-from fmriqa.io.manifest import generate_manifest_from_globs
-
-manifest = generate_manifest_from_globs(
-    bold_pattern="data/**/func/*bold.nii.gz",
-    mask_pattern="data/**/func/*mask.nii.gz",
-    motion_pattern="data/**/func/*motion.par",
-)
-manifest.to_yaml("manifest.yaml")
-```
-
-## Processing Single Runs
-
-```python
-from fmriqa.core.processing import process_single_run
-from fmriqa.io.structures import RunInfo
-
-info = RunInfo(
-    subject="sub-01",
-    session="ses-01",
-    run="run-01",
-    bold_path=Path("data/bold.nii.gz"),
-)
-
-result = process_single_run(info, config, output_dir)
-```
-
-## Metrics Computation
-
-```python
-from fmriqa.core.metrics import (
-    compute_tsnr,
-    compute_dvars,
-    compute_fd,
-    compute_gcor,
-)
-
-# Compute specific metrics
-tsnr = compute_tsnr(func_data, mask)
-dvars = compute_dvars(func_data, mask)
-fd = compute_fd(motion_params)
-gcor = compute_gcor(func_data, mask)
-```
-
-## Outlier Detection
-
-```python
-from fmriqa.analysis.outliers import detect_outliers_mahalanobis
-
-outlier_ids, distances = detect_outliers_mahalanobis(
-    results,
-    metrics=["tsnr_median", "fd_median", "dvars_std_median"],
-    threshold=3.0
+snapshot = SnapshotInfo(id="preproc", source_type="preprocessed")
+run_key = RunKey(subject="01", session="01", task="rest", run="01")
+input_run = InputRun(
+    snapshot=snapshot,
+    run_key=run_key,
+    bold_path=Path("sub-01_task-rest_run-01_bold.nii.gz"),
 )
 ```
 
-For complete API documentation, see source code in `src/fmriqa/`.
+## Manifests
+
+```python
+from fmriqc.io.manifest import QAManifest
+
+manifest = QAManifest.from_file("snapshot.yaml")
+input_runs = manifest.to_input_runs()
+```
+
+## Single Run Processing
+
+```python
+from fmriqc.core.processing import process_single_run
+
+result = process_single_run(input_run, config, output_dir)
+```
+
+The legacy `Path` input is still accepted, but new code should pass
+`InputRun`.
+
+## Motion Loading
+
+```python
+from fmriqc.core.motion import load_fd_series
+
+fd, motion_info = load_fd_series("confounds.tsv")
+```
+
+## Comparison
+
+```python
+from fmriqc.comparison.io import load_snapshot_results
+from fmriqc.comparison.metrics import compare_pair
+from fmriqc.comparison.pairing import pair_results
+
+left_snapshot, left_results = load_snapshot_results("QA_raw/...")
+right_snapshot, right_results = load_snapshot_results("QA_preproc/...")
+pairing = pair_results(left_results, right_results)
+comparisons = [compare_pair(pair) for pair in pairing.paired]
+```

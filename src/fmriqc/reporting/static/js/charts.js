@@ -1,5 +1,5 @@
 /**
- * D3.js chart components for fmriqa reports
+ * D3.js chart components for fmriqc reports
  */
 
 // Color palette for subjects/sessions

@@ -10,19 +10,19 @@ This test suite covers outlier detection functionality including:
 - Comprehensive outlier reporting
 """
 
-import pytest
-import numpy as np
-from unittest.mock import Mock, patch
 from pathlib import Path
 
+import numpy as np
+import pytest
+
 from fmriqc.analysis.outliers import (
-    LedoitWolfEstimator,
-    EmpiricalEstimator,
-    DiagonalEstimator,
-    IdentityEstimator,
     CovarianceEstimatorChain,
-    _prepare_metric_matrix,
+    DiagonalEstimator,
+    EmpiricalEstimator,
+    IdentityEstimator,
+    LedoitWolfEstimator,
     _compute_mahalanobis_distances,
+    _prepare_metric_matrix,
     detect_outliers_mahalanobis,
     detect_outliers_univariate,
     flag_extreme_motion,
@@ -30,8 +30,6 @@ from fmriqc.analysis.outliers import (
     generate_outlier_report,
 )
 from fmriqc.io.structures import RunInfo, RunResult
-from fmriqc.core.constants import StatisticalConstants
-
 
 # ============================================================================
 # Fixtures
@@ -63,8 +61,8 @@ def sample_run_results():
             'dvars_percent_above': 5.0 + np.random.randn() * 2.0,
             'outlier_percent_above': 3.0 + np.random.randn() * 1.0,
             'gcor': 0.05 + np.random.randn() * 0.01,
-            'smoothness_fwhm': 6.0 + np.random.randn() * 0.5,
-            'coverage': 0.85 + np.random.randn() * 0.05,
+            'apparent_smoothness_fwhm': 6.0 + np.random.randn() * 0.5,
+            'coverage_signal_fraction': 0.85 + np.random.randn() * 0.05,
             'fd_percent_above': 8.0 + np.random.randn() * 3.0,
         }
 
@@ -111,8 +109,8 @@ def outlier_run_results(sample_run_results):
         'dvars_percent_above': 25.0,  # High!
         'outlier_percent_above': 15.0,  # High!
         'gcor': 0.15,  # High!
-        'smoothness_fwhm': 10.0,  # Overly smooth
-        'coverage': 0.60,  # Poor coverage
+        'apparent_smoothness_fwhm': 10.0,  # Overly smooth
+        'coverage_signal_fraction': 0.60,  # Poor coverage
         'fd_percent_above': 40.0,  # High motion percentage
     }
 
@@ -381,7 +379,7 @@ class TestDetectOutliersMahalanobis:
         # Outlier should have higher distance
         outlier_id = outlier_run_results[-1].info.get_identifier()
         if outlier_id in distances:
-            avg_distance = np.mean([d for d in distances.values()])
+            avg_distance = np.mean(list(distances.values()))
             assert distances[outlier_id] > avg_distance
 
     def test_insufficient_runs_returns_empty(self, sample_run_results):

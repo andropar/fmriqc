@@ -1,4 +1,4 @@
-"""Command-line interface entry point for fmriqa."""
+"""Command-line interface entry point for fmriqc."""
 
 from fmriqc.orchestration.core import main
 

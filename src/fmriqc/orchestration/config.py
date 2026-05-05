@@ -1,4 +1,4 @@
-"""Configuration management for fMRI QA pipeline.
+"""Configuration management for fmriqc snapshot QA.
 
 This module provides a hierarchical configuration system for the QA pipeline,
 organizing settings into logical groups for better maintainability.
@@ -42,12 +42,17 @@ Backward compatibility (flat access):
 >>> config.n_jobs     # Same as config.processing.n_jobs
 """
 
-from dataclasses import dataclass, field
+import hashlib
+import json
+from dataclasses import asdict, dataclass, field, fields
 from enum import Enum
 from pathlib import Path
-from typing import Dict, Optional, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
 import yaml
+
+from fmriqc.core.thresholds import ResolvedThresholds
+from fmriqc.io.structures import SnapshotInfo
 
 if TYPE_CHECKING:
     from fmriqc.io.manifest import QAManifest
@@ -60,46 +65,50 @@ class DataSourcePreset(Enum):
     """
     FINALINTERP = "finalinterp"  # Final interpolated BOLD (default)
     TEDANA = "tedana"            # Tedana optimally combined outputs
-    GLMSINGLE = "glmsingle"      # GLMsingle subject-level aggregates
 
 
 # Glob patterns for each preset
 PRESET_PATTERNS = {
     DataSourcePreset.FINALINTERP: "sub-*/ses-*/finalinterp_func/sub-*_bold_final.nii.gz",
     DataSourcePreset.TEDANA: "sub-*/ses-*/tedana/run-*/sub-*_desc-optcom_bold.nii.gz",
-    DataSourcePreset.GLMSINGLE: "glmsingle/{source}/sub-*/aggregate/*.nii.gz",
 }
 
 # Mask patterns for each preset
 MASK_PATTERNS = {
     DataSourcePreset.FINALINTERP: "sub-*/ses-*/finalinterp_func/sub-*_mask.nii.gz",
     DataSourcePreset.TEDANA: "sub-*/ses-*/tedana/run-*/sub-*_desc-brain_mask.nii.gz",
-    DataSourcePreset.GLMSINGLE: None,  # Use mask from source data
 }
 
 
-def get_glob_pattern(
-    preset: DataSourcePreset,
-    glmsingle_source: str = "finalinterp",
-) -> str:
+def get_glob_pattern(preset: DataSourcePreset) -> str:
     """Get glob pattern for a data source preset.
 
     Parameters
     ----------
     preset : DataSourcePreset
         Data source preset
-    glmsingle_source : str
-        For GLMSINGLE preset, which input source (finalinterp or tedana)
-
-    Returns
-    -------
     str
-        Glob pattern for file discovery
+        Glob pattern for file discovery.
     """
-    pattern = PRESET_PATTERNS[preset]
-    if preset == DataSourcePreset.GLMSINGLE:
-        pattern = pattern.format(source=glmsingle_source)
-    return pattern
+    return PRESET_PATTERNS[preset]
+
+
+def _serialize_config_value(value: Any) -> Any:
+    """Make dataclass/Path config values JSON/YAML serializable."""
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, tuple):
+        return list(value)
+    if isinstance(value, list):
+        return [_serialize_config_value(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _serialize_config_value(item) for key, item in value.items()}
+    return value
+
+
+def _filter_dataclass_kwargs(cls, data: Dict[str, Any]) -> Dict[str, Any]:
+    allowed = {field.name for field in fields(cls)}
+    return {key: value for key, value in data.items() if key in allowed}
 
 
 @dataclass
@@ -118,8 +127,6 @@ class PathConfig:
         Path to configuration file
     reuse_run_dir : Optional[Path]
         Existing QA directory to reuse
-    reports_only : Optional[Path]
-        Regenerate reports from existing QA directory
     manifest_path : Optional[Path]
         Path to manifest file for manifest-based input
     cache_dir : Optional[Path]
@@ -133,7 +140,6 @@ class PathConfig:
     output_dir_name: str = "QA"
     config_file: Optional[Path] = None
     reuse_run_dir: Optional[Path] = None
-    reports_only: Optional[Path] = None
     manifest_path: Optional[Path] = None
     cache_dir: Optional[Path] = None
     reference_mask: Optional[Path] = None
@@ -148,8 +154,6 @@ class PathConfig:
             self.config_file = Path(self.config_file)
         if isinstance(self.reuse_run_dir, str):
             self.reuse_run_dir = Path(self.reuse_run_dir)
-        if isinstance(self.reports_only, str):
-            self.reports_only = Path(self.reports_only)
         if isinstance(self.manifest_path, str):
             self.manifest_path = Path(self.manifest_path)
         if isinstance(self.cache_dir, str):
@@ -172,8 +176,6 @@ class ThresholdConfig:
         DVARS z-score threshold
     outlier_threshold : float
         Outlier fraction threshold
-    tsnr_drop_threshold : float
-        tSNR drop threshold (fractional)
     slice_intensity_threshold : float
         Slice intensity z-score threshold
     outlier_metric_threshold : float
@@ -186,11 +188,11 @@ class ThresholdConfig:
         Minimum brain coverage fraction
     """
 
+    profile: str = "default"
     fd_threshold: float = 0.3
     fd_median_threshold: float = 0.2
     dvars_z_threshold: float = 2.5
     outlier_threshold: float = 0.02
-    tsnr_drop_threshold: float = 0.25
     slice_intensity_threshold: float = 3.0
     outlier_metric_threshold: float = 3.0
     outlier_min_runs: int = 5
@@ -209,6 +211,59 @@ class ThresholdConfig:
             raise ValueError("coverage_threshold must be between 0 and 1")
         if self.outlier_min_runs < 1:
             raise ValueError("outlier_min_runs must be >= 1")
+
+    def resolve(self) -> ResolvedThresholds:
+        """Resolve legacy config fields into the canonical threshold object."""
+        return ResolvedThresholds(
+            profile=self.profile if self.profile in {"lenient", "default", "strict"} else "custom",
+            fd_volume=self.fd_threshold,
+            fd_median=self.fd_median_threshold,
+            dvars_std_volume=self.dvars_z_threshold,
+            outlier_fraction_volume=self.outlier_threshold,
+            tsnr_median_min=self.tsnr_threshold,
+            coverage_signal_fraction_min=self.coverage_threshold,
+        )
+
+
+@dataclass
+class SnapshotConfig:
+    """Identity for the dataset snapshot being assessed."""
+
+    id: str = "snapshot"
+    label: str = ""
+    source_type: str = "custom"
+    description: str = ""
+    pipeline_name: Optional[str] = None
+    pipeline_version: Optional[str] = None
+
+    def to_snapshot_info(self, root: Optional[Path] = None) -> SnapshotInfo:
+        return SnapshotInfo(
+            id=self.id,
+            label=self.label,
+            source_type=self.source_type,  # type: ignore[arg-type]
+            description=self.description,
+            root=root,
+            pipeline_name=self.pipeline_name,
+            pipeline_version=self.pipeline_version,
+        )
+
+
+@dataclass
+class MotionConfig:
+    """Motion-loading and optional generation strategy."""
+
+    strategy: str = "prefer_provided"
+    generation_tool: str = "mcflirt"
+    fsl_container_path: Optional[Path] = None
+    download_policy: str = "ask"
+    diagnostic_only_for_preprocessed: bool = True
+
+    def __post_init__(self):
+        if isinstance(self.fsl_container_path, str):
+            self.fsl_container_path = Path(self.fsl_container_path)
+        valid = {"prefer_provided", "generate_if_missing", "none"}
+        if self.strategy not in valid:
+            raise ValueError(f"motion strategy must be one of {sorted(valid)}")
 
 
 @dataclass
@@ -230,9 +285,7 @@ class ProcessingConfig:
     use_multiecho : bool
         Enable multi-echo processing
     data_source : str
-        Data source preset (finalinterp, tedana, glmsingle, manifest)
-    glmsingle_input_source : str
-        For glmsingle: which input source was used
+        Data source preset (finalinterp, tedana, manifest)
     glob_pattern : str
         Custom glob pattern for file discovery
     generate_motion : bool
@@ -248,10 +301,7 @@ class ProcessingConfig:
     dry_run: bool = False
     use_multiecho: bool = True
     data_source: str = "finalinterp"
-    glmsingle_input_source: str = "finalinterp"
     glob_pattern: str = ""
-    generate_motion: bool = False
-    fsl_container_path: Optional[Path] = None
 
     def __post_init__(self):
         """Validate processing settings."""
@@ -259,10 +309,10 @@ class ProcessingConfig:
             raise ValueError("n_jobs must be >= 1")
         if self.target_echo < 1:
             raise ValueError("target_echo must be >= 1")
-
-        # Convert fsl_container_path to Path if string
-        if isinstance(self.fsl_container_path, str):
-            self.fsl_container_path = Path(self.fsl_container_path)
+        if self.data_source == "glm" "single":
+            raise ValueError(
+                "GLM beta-map QA is out of scope for the time-series snapshot QA pipeline"
+            )
 
 
 @dataclass
@@ -309,7 +359,7 @@ class AnalysisConfig:
     detect_outliers : bool
         Enable outlier detection
     generate_exclusions : bool
-        Generate exclusion recommendations
+        Generate candidate review recommendations
     exclusion_stringency : str
         Exclusion stringency level (liberal, moderate, conservative)
     outlier_method : str
@@ -319,10 +369,10 @@ class AnalysisConfig:
     """
 
     detect_outliers: bool = True
-    generate_exclusions: bool = True
+    generate_exclusions: bool = False
     exclusion_stringency: str = "moderate"
     outlier_method: str = "mahalanobis"
-    consistency_analysis: bool = True
+    consistency_analysis: bool = False
 
     def __post_init__(self):
         """Validate analysis settings."""
@@ -349,33 +399,23 @@ class ReportingConfig:
         Enable report generation
     generate_group_plots : bool
         Generate group-level plots
-    report_format : str
-        Report output format (html, pdf, markdown)
     include_subject_reports : bool
         Include subject-level reports
     include_session_reports : bool
         Include session-level reports
     include_study_report : bool
         Include study-level report
-    organize_hierarchical : bool
-        Organize reports hierarchically
+    Reports are HTML-only and always use the snapshot report structure.
     """
 
     generate_reports: bool = True
     generate_group_plots: bool = True
-    report_format: str = "html"
     include_subject_reports: bool = True
     include_session_reports: bool = True
     include_study_report: bool = True
-    organize_hierarchical: bool = True
 
     def __post_init__(self):
         """Validate reporting settings."""
-        valid_formats = ["html", "pdf", "markdown"]
-        if self.report_format not in valid_formats:
-            raise ValueError(
-                f"report_format must be one of {valid_formats}"
-            )
 
 
 @dataclass
@@ -428,8 +468,10 @@ class QAConfig:
     """
 
     paths: PathConfig = field(default_factory=PathConfig)
+    snapshot: SnapshotConfig = field(default_factory=SnapshotConfig)
     thresholds: ThresholdConfig = field(default_factory=ThresholdConfig)
     processing: ProcessingConfig = field(default_factory=ProcessingConfig)
+    motion: MotionConfig = field(default_factory=MotionConfig)
     visualization: VisualizationConfig = field(default_factory=VisualizationConfig)
     analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
     reporting: ReportingConfig = field(default_factory=ReportingConfig)
@@ -449,18 +491,22 @@ class QAConfig:
         QAConfig
             Configuration object
         """
-        paths = PathConfig(**config_dict.get('paths', {}))
-        thresholds = ThresholdConfig(**config_dict.get('thresholds', {}))
-        processing = ProcessingConfig(**config_dict.get('processing', {}))
-        visualization = VisualizationConfig(**config_dict.get('visualization', {}))
-        analysis = AnalysisConfig(**config_dict.get('analysis', {}))
-        reporting = ReportingConfig(**config_dict.get('reporting', {}))
+        paths = PathConfig(**_filter_dataclass_kwargs(PathConfig, config_dict.get('paths', {})))
+        snapshot = SnapshotConfig(**_filter_dataclass_kwargs(SnapshotConfig, config_dict.get('snapshot', {})))
+        thresholds = ThresholdConfig(**_filter_dataclass_kwargs(ThresholdConfig, config_dict.get('thresholds', {})))
+        processing = ProcessingConfig(**_filter_dataclass_kwargs(ProcessingConfig, config_dict.get('processing', {})))
+        motion = MotionConfig(**_filter_dataclass_kwargs(MotionConfig, config_dict.get('motion', {})))
+        visualization = VisualizationConfig(**_filter_dataclass_kwargs(VisualizationConfig, config_dict.get('visualization', {})))
+        analysis = AnalysisConfig(**_filter_dataclass_kwargs(AnalysisConfig, config_dict.get('analysis', {})))
+        reporting = ReportingConfig(**_filter_dataclass_kwargs(ReportingConfig, config_dict.get('reporting', {})))
         manifest = config_dict.get('manifest')
 
         return cls(
             paths=paths,
+            snapshot=snapshot,
             thresholds=thresholds,
             processing=processing,
+            motion=motion,
             visualization=visualization,
             analysis=analysis,
             reporting=reporting,
@@ -475,11 +521,10 @@ class QAConfig:
         dict
             Configuration as nested dictionary
         """
-        from dataclasses import asdict
         result = asdict(self)
         # Remove manifest from dict (not serializable)
         result.pop('manifest', None)
-        return result
+        return _serialize_config_value(result)
 
     @classmethod
     def from_yaml(cls, path: Path) -> "QAConfig":
@@ -504,7 +549,7 @@ class QAConfig:
         path = Path(path)
 
         # Load file based on extension
-        with open(path, "r") as f:
+        with open(path) as f:
             if path.suffix == ".json":
                 data = json.load(f)
             else:
@@ -529,12 +574,14 @@ class QAConfig:
 
         # Otherwise, this is a QA-specific config
         # Check if it's already hierarchical
-        if any(key in data for key in ['paths', 'thresholds', 'processing', 'visualization', 'analysis', 'reporting']):
+        if any(key in data for key in ['paths', 'snapshot', 'thresholds', 'processing', 'motion', 'visualization', 'analysis', 'reporting']):
             # Hierarchical format - convert Path strings
             if 'paths' in data:
-                for key in ['bids_root', 'derivatives_dir', 'config_file', 'reuse_run_dir', 'manifest_path', 'cache_dir', 'reference_mask', 'reports_only']:
+                for key in ['bids_root', 'derivatives_dir', 'config_file', 'reuse_run_dir', 'manifest_path', 'cache_dir', 'reference_mask']:
                     if key in data['paths'] and data['paths'][key]:
                         data['paths'][key] = Path(data['paths'][key]).expanduser()
+            if 'motion' in data and data['motion'].get('fsl_container_path'):
+                data['motion']['fsl_container_path'] = Path(data['motion']['fsl_container_path']).expanduser()
             return cls.from_dict(data)
 
         # Flat format - convert to hierarchical
@@ -546,7 +593,7 @@ class QAConfig:
                 flat_data[section] = values
 
         # Convert string paths to Path objects
-        path_fields = ['derivatives_dir', 'bids_root', 'config_file', 'reuse_run_dir', 'manifest_path', 'cache_dir', 'reference_mask', 'reports_only']
+        path_fields = ['derivatives_dir', 'bids_root', 'config_file', 'reuse_run_dir', 'manifest_path', 'cache_dir', 'reference_mask']
         for key in path_fields:
             if key in flat_data and flat_data[key]:
                 flat_data[key] = Path(flat_data[key]).expanduser()
@@ -579,7 +626,6 @@ class QAConfig:
             'output_dir_name': flat_data.get('output_dir_name', 'QA'),
             'config_file': flat_data.get('config_file'),
             'reuse_run_dir': flat_data.get('reuse_run_dir'),
-            'reports_only': flat_data.get('reports_only'),
             'manifest_path': flat_data.get('manifest_path'),
             'cache_dir': flat_data.get('cache_dir'),
             'reference_mask': flat_data.get('reference_mask'),
@@ -587,11 +633,11 @@ class QAConfig:
 
         # Threshold fields
         threshold_kwargs = {
+            'profile': flat_data.get('threshold_profile', flat_data.get('profile', 'default')),
             'fd_threshold': flat_data.get('fd_threshold', 0.3),
             'fd_median_threshold': flat_data.get('fd_median_threshold', 0.2),
             'dvars_z_threshold': flat_data.get('dvars_z_threshold', 2.5),
             'outlier_threshold': flat_data.get('outlier_threshold', 0.02),
-            'tsnr_drop_threshold': flat_data.get('tsnr_drop_threshold', 0.25),
             'slice_intensity_threshold': flat_data.get('slice_intensity_threshold', 3.0),
             'outlier_metric_threshold': flat_data.get('outlier_metric_threshold', 3.0),
             'outlier_min_runs': flat_data.get('outlier_min_runs', 5),
@@ -608,10 +654,26 @@ class QAConfig:
             'dry_run': flat_data.get('dry_run', False),
             'use_multiecho': flat_data.get('use_multiecho', True),
             'data_source': flat_data.get('data_source', 'finalinterp'),
-            'glmsingle_input_source': flat_data.get('glmsingle_input_source', 'finalinterp'),
             'glob_pattern': flat_data.get('glob_pattern', ''),
-            'generate_motion': flat_data.get('generate_motion', False),
+        }
+
+        snapshot_kwargs = {
+            'id': flat_data.get('snapshot_id', 'snapshot'),
+            'label': flat_data.get('snapshot_label', ''),
+            'source_type': flat_data.get('snapshot_source_type', 'custom'),
+            'description': flat_data.get('snapshot_description', ''),
+            'pipeline_name': flat_data.get('pipeline_name'),
+            'pipeline_version': flat_data.get('pipeline_version'),
+        }
+
+        motion_kwargs = {
+            'strategy': (
+                'generate_if_missing'
+                if flat_data.get('generate_motion')
+                else flat_data.get('motion_strategy', 'prefer_provided')
+            ),
             'fsl_container_path': flat_data.get('fsl_container_path'),
+            'download_policy': flat_data.get('container_download', 'ask'),
         }
 
         # Visualization fields
@@ -627,27 +689,27 @@ class QAConfig:
         # Analysis fields
         analysis_kwargs = {
             'detect_outliers': flat_data.get('detect_outliers', True),
-            'generate_exclusions': flat_data.get('generate_exclusions', True),
+            'generate_exclusions': flat_data.get('generate_exclusions', False),
             'exclusion_stringency': flat_data.get('exclusion_stringency', 'moderate'),
             'outlier_method': flat_data.get('outlier_method', 'mahalanobis'),
-            'consistency_analysis': flat_data.get('consistency_analysis', True),
+            'consistency_analysis': flat_data.get('consistency_analysis', False),
         }
 
         # Reporting fields
         reporting_kwargs = {
             'generate_reports': flat_data.get('generate_reports', True),
             'generate_group_plots': flat_data.get('generate_group_plots', True),
-            'report_format': flat_data.get('report_format', 'html'),
             'include_subject_reports': flat_data.get('include_subject_reports', True),
             'include_session_reports': flat_data.get('include_session_reports', True),
             'include_study_report': flat_data.get('include_study_report', True),
-            'organize_hierarchical': flat_data.get('organize_hierarchical', True),
         }
 
         return cls(
             paths=PathConfig(**path_kwargs),
+            snapshot=SnapshotConfig(**snapshot_kwargs),
             thresholds=ThresholdConfig(**threshold_kwargs),
             processing=ProcessingConfig(**processing_kwargs),
+            motion=MotionConfig(**motion_kwargs),
             visualization=VisualizationConfig(**visualization_kwargs),
             analysis=AnalysisConfig(**analysis_kwargs),
             reporting=ReportingConfig(**reporting_kwargs),
@@ -668,17 +730,24 @@ class QAConfig:
                 "output_dir_name": self.paths.output_dir_name,
                 "config_file": str(self.paths.config_file) if self.paths.config_file else None,
                 "reuse_run_dir": str(self.paths.reuse_run_dir) if self.paths.reuse_run_dir else None,
-                "reports_only": str(self.paths.reports_only) if self.paths.reports_only else None,
                 "manifest_path": str(self.paths.manifest_path) if self.paths.manifest_path else None,
                 "cache_dir": str(self.paths.cache_dir) if self.paths.cache_dir else None,
                 "reference_mask": str(self.paths.reference_mask) if self.paths.reference_mask else None,
             },
+            "snapshot": {
+                "id": self.snapshot.id,
+                "label": self.snapshot.label,
+                "source_type": self.snapshot.source_type,
+                "description": self.snapshot.description,
+                "pipeline_name": self.snapshot.pipeline_name,
+                "pipeline_version": self.snapshot.pipeline_version,
+            },
             "thresholds": {
+                "profile": self.thresholds.profile,
                 "fd_threshold": self.thresholds.fd_threshold,
                 "fd_median_threshold": self.thresholds.fd_median_threshold,
                 "dvars_z_threshold": self.thresholds.dvars_z_threshold,
                 "outlier_threshold": self.thresholds.outlier_threshold,
-                "tsnr_drop_threshold": self.thresholds.tsnr_drop_threshold,
                 "slice_intensity_threshold": self.thresholds.slice_intensity_threshold,
                 "outlier_metric_threshold": self.thresholds.outlier_metric_threshold,
                 "outlier_min_runs": self.thresholds.outlier_min_runs,
@@ -693,10 +762,14 @@ class QAConfig:
                 "dry_run": self.processing.dry_run,
                 "use_multiecho": self.processing.use_multiecho,
                 "data_source": self.processing.data_source,
-                "glmsingle_input_source": self.processing.glmsingle_input_source,
                 "glob_pattern": self.processing.glob_pattern,
-                "generate_motion": self.processing.generate_motion,
-                "fsl_container_path": str(self.processing.fsl_container_path) if self.processing.fsl_container_path else None,
+            },
+            "motion": {
+                "strategy": self.motion.strategy,
+                "generation_tool": self.motion.generation_tool,
+                "fsl_container_path": str(self.motion.fsl_container_path) if self.motion.fsl_container_path else None,
+                "download_policy": self.motion.download_policy,
+                "diagnostic_only_for_preprocessed": self.motion.diagnostic_only_for_preprocessed,
             },
             "visualization": {
                 "generate_figures": self.visualization.generate_figures,
@@ -716,11 +789,9 @@ class QAConfig:
             "reporting": {
                 "generate_reports": self.reporting.generate_reports,
                 "generate_group_plots": self.reporting.generate_group_plots,
-                "report_format": self.reporting.report_format,
                 "include_subject_reports": self.reporting.include_subject_reports,
                 "include_session_reports": self.reporting.include_session_reports,
                 "include_study_report": self.reporting.include_study_report,
-                "organize_hierarchical": self.reporting.organize_hierarchical,
             },
         }
 
@@ -735,14 +806,31 @@ class QAConfig:
         dict
             Dictionary of threshold names and values
         """
+        thresholds = self.thresholds.resolve()
         return {
-            "dvars_z": self.thresholds.dvars_z_threshold,
-            "fd": self.thresholds.fd_threshold,
-            "fd_median": self.thresholds.fd_median_threshold,
-            "outlier": self.thresholds.outlier_threshold,
-            "tsnr_drop": self.thresholds.tsnr_drop_threshold,
+            "dvars_z": thresholds.dvars_std_volume,
+            "fd": thresholds.fd_volume,
+            "fd_median": thresholds.fd_median,
+            "fd_percent": thresholds.fd_percent,
+            "dvars_percent": thresholds.dvars_percent,
+            "outlier": thresholds.outlier_fraction_volume,
+            "outlier_percent": thresholds.outlier_percent,
+            "tsnr": thresholds.tsnr_median_min,
+            "coverage": thresholds.coverage_signal_fraction_min,
             "slice_intensity": self.thresholds.slice_intensity_threshold,
         }
+
+    def get_snapshot_info(self) -> SnapshotInfo:
+        """Return resolved snapshot metadata."""
+        root = self.paths.derivatives_dir or self.paths.bids_root
+        return self.snapshot.to_snapshot_info(root=root)
+
+    def compute_hash(self) -> str:
+        """Compute a stable hash for reproducibility/cache identity."""
+        payload = self.to_dict()
+        return hashlib.sha256(
+            json.dumps(payload, sort_keys=True, default=str).encode()
+        ).hexdigest()
 
     def get_data_source_preset(self) -> DataSourcePreset:
         """Get data source as enum.
@@ -755,7 +843,6 @@ class QAConfig:
         preset_map = {
             "finalinterp": DataSourcePreset.FINALINTERP,
             "tedana": DataSourcePreset.TEDANA,
-            "glmsingle": DataSourcePreset.GLMSINGLE,
         }
         return preset_map.get(self.processing.data_source.lower(), DataSourcePreset.FINALINTERP)
 
@@ -769,22 +856,17 @@ class QAConfig:
         """
         if self.processing.glob_pattern:
             return self.processing.glob_pattern
-        return get_glob_pattern(
-            self.get_data_source_preset(),
-            self.processing.glmsingle_input_source,
-        )
+        return get_glob_pattern(self.get_data_source_preset())
 
     def is_timeseries_data(self) -> bool:
         """Check if data source has temporal dimension.
-
-        Returns False for GLMsingle (subject-level aggregates).
 
         Returns
         -------
         bool
             True if data has temporal dimension
         """
-        return self.get_data_source_preset() != DataSourcePreset.GLMSINGLE
+        return True
 
     def is_manifest_mode(self) -> bool:
         """Check if using manifest-based input.
@@ -872,15 +954,6 @@ class QAConfig:
         self.paths.reuse_run_dir = value
 
     @property
-    def reports_only(self) -> Optional[Path]:
-        """Backward compatibility for paths.reports_only."""
-        return self.paths.reports_only
-
-    @reports_only.setter
-    def reports_only(self, value: Optional[Path]):
-        self.paths.reports_only = value
-
-    @property
     def manifest_path(self) -> Optional[Path]:
         """Backward compatibility for paths.manifest_path."""
         return self.paths.manifest_path
@@ -925,15 +998,6 @@ class QAConfig:
     @outlier_threshold.setter
     def outlier_threshold(self, value: float):
         self.thresholds.outlier_threshold = value
-
-    @property
-    def tsnr_drop_threshold(self) -> float:
-        """Backward compatibility for thresholds.tsnr_drop_threshold."""
-        return self.thresholds.tsnr_drop_threshold
-
-    @tsnr_drop_threshold.setter
-    def tsnr_drop_threshold(self, value: float):
-        self.thresholds.tsnr_drop_threshold = value
 
     @property
     def slice_intensity_threshold(self) -> float:
@@ -1018,15 +1082,6 @@ class QAConfig:
         self.processing.data_source = value
 
     @property
-    def glmsingle_input_source(self) -> str:
-        """Backward compatibility for processing.glmsingle_input_source."""
-        return self.processing.glmsingle_input_source
-
-    @glmsingle_input_source.setter
-    def glmsingle_input_source(self, value: str):
-        self.processing.glmsingle_input_source = value
-
-    @property
     def glob_pattern(self) -> str:
         """Backward compatibility for processing.glob_pattern."""
         return self.processing.glob_pattern
@@ -1055,30 +1110,20 @@ class QAConfig:
     def exclusion_stringency(self, value: str):
         self.analysis.exclusion_stringency = value
 
-    # Reporting properties
-    @property
-    def organize_hierarchical(self) -> bool:
-        """Backward compatibility for reporting.organize_hierarchical."""
-        return self.reporting.organize_hierarchical
-
-    @organize_hierarchical.setter
-    def organize_hierarchical(self, value: bool):
-        self.reporting.organize_hierarchical = value
-
     @property
     def generate_motion(self) -> bool:
-        """Backward compatibility for processing.generate_motion."""
-        return self.processing.generate_motion
+        """Backward compatibility for old --generate-motion flag."""
+        return self.motion.strategy == "generate_if_missing"
 
     @generate_motion.setter
     def generate_motion(self, value: bool):
-        self.processing.generate_motion = value
+        self.motion.strategy = "generate_if_missing" if value else "prefer_provided"
 
     @property
     def fsl_container_path(self) -> Optional[Path]:
-        """Backward compatibility for processing.fsl_container_path."""
-        return self.processing.fsl_container_path
+        """Backward compatibility for old processing.fsl_container_path."""
+        return self.motion.fsl_container_path
 
     @fsl_container_path.setter
     def fsl_container_path(self, value: Optional[Path]):
-        self.processing.fsl_container_path = value
+        self.motion.fsl_container_path = value

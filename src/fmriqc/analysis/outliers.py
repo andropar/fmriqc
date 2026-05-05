@@ -1,13 +1,26 @@
 """Outlier detection for QA results."""
 
-import numpy as np
-from typing import List, Dict, Tuple, Optional
 from abc import ABC, abstractmethod
-from scipy import stats
-from scipy.spatial.distance import mahalanobis
+from typing import Dict, List, Optional, Tuple
 
-from fmriqc.io.structures import RunResult, SessionResults
+import numpy as np
+
 from fmriqc.core.constants import StatisticalConstants
+from fmriqc.io.structures import RunResult
+
+METRIC_ALIASES = {
+    "apparent_smoothness_fwhm": ("apparent_smoothness_fwhm", "smoothness_fwhm"),
+    "coverage_signal_fraction": ("coverage_signal_fraction", "coverage"),
+}
+
+
+def _metric_value(metrics: Dict[str, float], key: str) -> Optional[float]:
+    """Return a metric value, accepting legacy cache aliases where useful."""
+    for candidate in METRIC_ALIASES.get(key, (key,)):
+        value = metrics.get(candidate)
+        if value is not None:
+            return value
+    return None
 
 
 # === COVARIANCE ESTIMATION STRATEGIES ===
@@ -189,8 +202,8 @@ def _prepare_metric_matrix(
         'dvars_percent_above',
         'outlier_percent_above',
         'gcor',
-        'smoothness_fwhm',
-        'coverage',
+        'apparent_smoothness_fwhm',
+        'coverage_signal_fraction',
     ]
 
     # Adaptive metric selection: use at most n_runs - 2 metrics
@@ -202,9 +215,8 @@ def _prepare_metric_matrix(
     identifiers = []
 
     for res in results:
-        # Check if all metrics are present
-        if all(key in res.metrics for key in metric_keys):
-            metric_vector = [res.metrics[key] for key in metric_keys]
+        metric_vector = [_metric_value(res.metrics, key) for key in metric_keys]
+        if all(value is not None for value in metric_vector):
             metric_matrix.append(metric_vector)
             identifiers.append(res.info.get_identifier())
 

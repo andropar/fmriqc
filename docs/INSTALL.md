@@ -3,14 +3,14 @@
 ## Quick Install
 
 ```bash
-pip install fmriqa
+pip install fmriqc
 ```
 
 ## Development Install
 
 ```bash
-git clone https://github.com/andropar/fmriqa.git
-cd fmriqa
+git clone https://github.com/andropar/fmriqc.git
+cd fmriqc
 pip install -e ".[dev]"
 ```
 
@@ -28,11 +28,11 @@ pip install -e ".[dev]"
   - `scikit-learn` - Outlier detection
   - `tqdm` - Progress bars
 
-## Optional Dependencies
+## Optional Runtime Tools
 
-### Motion Parameter Generation
+### Motion Generation
 
-For `--generate-motion` feature:
+For `--generate-motion`:
 
 **macOS/Windows:**
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/)
@@ -40,7 +40,7 @@ For `--generate-motion` feature:
 **Linux/HPC:**
 - Singularity or Apptainer
 
-See [Motion Generation Guide](MOTION_GENERATION.md) for details.
+See [Motion Generation](MOTION_GENERATION.md) for details.
 
 ## Platform-Specific Notes
 
@@ -48,10 +48,10 @@ See [Motion Generation Guide](MOTION_GENERATION.md) for details.
 
 ```bash
 # Install via pip (recommended)
-pip install fmriqa
+pip install fmriqc
 
 # Or via Homebrew (if available)
-# brew install fmriqa  # Not yet available
+# brew install fmriqc  # Not yet available
 ```
 
 ### Linux
@@ -59,11 +59,11 @@ pip install fmriqa
 ```bash
 # Ubuntu/Debian
 sudo apt-get install python3-pip
-pip3 install fmriqa
+pip3 install fmriqc
 
 # RHEL/CentOS
 sudo yum install python3-pip
-pip3 install fmriqa
+pip3 install fmriqc
 ```
 
 ### Windows
@@ -71,7 +71,7 @@ pip3 install fmriqa
 ```bash
 # Install Python 3.9+ from python.org
 # Then use pip
-pip install fmriqa
+pip install fmriqc
 ```
 
 ### HPC Clusters
@@ -81,34 +81,34 @@ pip install fmriqa
 module load python/3.9
 
 # Install in user directory
-pip install --user fmriqa
+pip install --user fmriqc
 
 # Or use virtual environment
-python -m venv ~/venvs/fmriqa
-source ~/venvs/fmriqa/bin/activate
-pip install fmriqa
+python -m venv ~/venvs/fmriqc
+source ~/venvs/fmriqc/bin/activate
+pip install fmriqc
 ```
 
 ## Verifying Installation
 
 ```bash
 # Check installation
-fmriqa --help
+fmriqc --help
 
 # Run test
-python -c "import fmriqa; print(fmriqa.__version__)"
+python -c "import fmriqc; print(fmriqc.__version__)"
 ```
 
 ## Upgrading
 
 ```bash
-pip install --upgrade fmriqa
+pip install --upgrade fmriqc
 ```
 
 ## Uninstalling
 
 ```bash
-pip uninstall fmriqa
+pip uninstall fmriqc
 ```
 
 ## Troubleshooting
@@ -123,17 +123,17 @@ pip install nibabel
 
 ```bash
 # Install for user only
-pip install --user fmriqa
+pip install --user fmriqc
 ```
 
-### Command not found: fmriqa
+### Command not found: fmriqc
 
 ```bash
 # Add to PATH (macOS/Linux)
 export PATH="$HOME/.local/bin:$PATH"
 
-# Or run via python
-python -m fmriqa --help
+# Or invoke the installed console script from its full path
+python -c "import fmriqc; print(fmriqc.__version__)"
 ```
 
-For more help, see [GitHub Issues](https://github.com/andropar/fmriqa/issues).
+For more help, see [GitHub Issues](https://github.com/andropar/fmriqc/issues).

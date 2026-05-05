@@ -2,13 +2,13 @@
 
 import base64
 from pathlib import Path
-from typing import Dict, Optional, Tuple, List, Any
+from typing import Any, Dict, List, Optional, Tuple
 
 import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
 
-from fmriqc.core.constants import PlotStyle, MotionConstants
+from fmriqc.core.constants import PlotStyle
 from fmriqc.io.structures import RunInfo, StudyResults
 
 
@@ -108,8 +108,6 @@ def display_mosaic(
 
     # Get slices from each orientation
     slices = _multi_view_slices(data, n_slices)
-    if mask is not None:
-        mask_slices = _multi_view_slices(mask.astype(float), n_slices)
 
     # Create mosaic: 3 rows (orientations) x n_slices columns
     rows = []
@@ -526,10 +524,16 @@ def _plot_psd_panel(ax: plt.Axes, series: Dict[str, np.ndarray], style_dict: Dic
         ax.set_ylabel("Power", fontsize=9)
         ax.set_xlim(0, min(0.5, freq[-1]))
 
-        # Shade physiological bands
-        ax.axvspan(0.15, 0.4, alpha=0.15, color="blue", label="Respiratory")
-        ax.axvspan(0.8, 1.5, alpha=0.15, color="red", label="Cardiac")
-        ax.legend(fontsize=7, loc="upper right")
+        ax.text(
+            0.98,
+            0.95,
+            "PSD diagnostic",
+            transform=ax.transAxes,
+            ha="right",
+            va="top",
+            fontsize=7,
+            color="gray",
+        )
     else:
         ax.text(0.5, 0.5, "PSD not available", ha="center", va="center", fontsize=10, color="gray")
         ax.set_title("Power Spectrum (GS)", fontsize=PlotStyle.FONT_LABEL, fontweight="bold")
@@ -925,7 +929,7 @@ def create_run_figure(
     info : RunInfo
         Run metadata
     maps : dict
-        Dictionary of 3D spatial maps (mean, std, tsnr, cov, dropout, ar1)
+        Dictionary of 3D spatial maps.
     series : dict
         Dictionary of time series (dvars, dvars_std, global_signal, etc.)
     fd_series : np.ndarray or None
@@ -974,19 +978,19 @@ def create_run_figure(
     cbar3.ax.tick_params(labelsize=PlotStyle.FONT_SMALL)
     _add_value_annotation(ax3, maps["tsnr"], mask)
 
-    # Row 2: Secondary spatial maps (CoV, Dropout, AR1)
+    # Row 2: Secondary spatial maps (temporal CoV, low-signal percentile, AR1)
     ax4 = fig.add_subplot(gs[1, 0])
-    im4 = _display_spatial_map(ax4, maps["cov"], "Coefficient of Variation", use_mosaic, cmap="inferno", vmin=0, vmax=0.2)
+    im4 = _display_spatial_map(ax4, maps["temporal_cov"], "Temporal CoV", use_mosaic, cmap="inferno", vmin=0, vmax=0.2)
     cbar4 = fig.colorbar(im4, ax=ax4, fraction=PlotStyle.MARGIN_HORIZONTAL, pad=0.02)
     cbar4.ax.tick_params(labelsize=PlotStyle.FONT_SMALL)
-    _add_value_annotation(ax4, maps["cov"], mask)
+    _add_value_annotation(ax4, maps["temporal_cov"], mask)
 
     ax5 = fig.add_subplot(gs[1, 1])
-    im5 = _display_spatial_map(ax5, maps["dropout"], "Signal Dropout", use_mosaic, cmap="Reds", vmin=0, vmax=1)
+    im5 = _display_spatial_map(ax5, maps["low_signal"], "Low-Signal Percentile", use_mosaic, cmap="Reds", vmin=0, vmax=1)
     cbar5 = fig.colorbar(im5, ax=ax5, fraction=PlotStyle.MARGIN_HORIZONTAL, pad=0.02)
     cbar5.ax.tick_params(labelsize=PlotStyle.FONT_SMALL)
-    dropout_pct = np.mean(maps["dropout"][mask > 0] > 0.5) * 100 if mask is not None else 0
-    ax5.text(0.5, -0.02, f"Dropout voxels: {dropout_pct:.1f}%", transform=ax5.transAxes,
+    low_signal_pct = np.mean(maps["low_signal"][mask > 0] > 0.5) * 100 if mask is not None else 0
+    ax5.text(0.5, -0.02, f"Low-signal voxels: {low_signal_pct:.1f}%", transform=ax5.transAxes,
              fontsize=PlotStyle.FONT_SMALL, ha="center", va="top", color="gray", style="italic")
 
     ax6 = fig.add_subplot(gs[1, 2])
@@ -1126,7 +1130,7 @@ def create_aggregate_maps_figure(
     Parameters
     ----------
     maps : dict
-        Dictionary of 3D numpy arrays with keys 'mean', 'tsnr', 'cov', 'dropout', 'ar1'
+        Dictionary of 3D numpy arrays with aggregate QA maps.
     output_path : Path
         Where to save the figure
     use_mosaic : bool
@@ -1146,8 +1150,8 @@ def create_aggregate_maps_figure(
         map_configs = [
             ("mean", "Mean", "viridis", None, None),
             ("tsnr", "tSNR", "plasma", 0, 100),
-            ("cov", "CoV", "inferno", 0, 0.2),
-            ("dropout", "Dropout", "binary", 0, 1),
+            ("temporal_cov", "Temporal CoV", "inferno", 0, 0.2),
+            ("low_signal", "Low-Signal Percentile", "binary", 0, 1),
             ("ar1", "AR(1)", "coolwarm", -0.5, 0.5),
         ]
 
@@ -1173,8 +1177,8 @@ def create_aggregate_maps_figure(
 
         im1 = display(axes[0, 0], maps["mean"], "Mean")
         im2 = display(axes[0, 1], maps["tsnr"], "tSNR", cmap="plasma")
-        im3 = display(axes[0, 2], maps["cov"], "CoV", cmap="inferno")
-        im4 = display(axes[1, 0], maps["dropout"], "Dropout", cmap="binary")
+        im3 = display(axes[0, 2], maps["temporal_cov"], "Temporal CoV", cmap="inferno")
+        im4 = display(axes[1, 0], maps["low_signal"], "Low-Signal", cmap="binary")
         im5 = display(axes[1, 1], maps["ar1"], "AR(1)", cmap="coolwarm")
         axes[1, 2].axis("off")
 
@@ -1200,8 +1204,8 @@ SPATIAL_MAP_CONFIGS = {
     'tsnr': {'cmap': 'plasma', 'vmin': 0, 'vmax': 150, 'label': 'tSNR'},
     'mean': {'cmap': 'gray', 'vmin': None, 'vmax': None, 'label': 'Mean'},
     'std': {'cmap': 'magma', 'vmin': None, 'vmax': None, 'label': 'Std Dev'},
-    'cov': {'cmap': 'inferno', 'vmin': 0, 'vmax': 0.2, 'label': 'CoV'},
-    'dropout': {'cmap': 'Reds', 'vmin': 0, 'vmax': 1, 'label': 'Dropout'},
+    'temporal_cov': {'cmap': 'inferno', 'vmin': 0, 'vmax': 0.2, 'label': 'Temporal CoV'},
+    'low_signal': {'cmap': 'Reds', 'vmin': 0, 'vmax': 1, 'label': 'Low-Signal Percentile'},
     'ar1': {'cmap': 'RdBu_r', 'vmin': -0.5, 'vmax': 0.5, 'label': 'AR(1)'},
 }
 
@@ -1228,7 +1232,7 @@ def create_spatial_map_image(
     output_path : Path
         Output file path for the image
     map_type : str
-        Type of map ('tsnr', 'mean', 'std', 'cov', 'dropout', 'ar1')
+        Type of map ('tsnr', 'mean', 'std', 'temporal_cov', 'low_signal', 'ar1')
         Used to determine colormap and scaling
     mask : np.ndarray, optional
         Brain mask for masking non-brain regions
@@ -1310,14 +1314,14 @@ def create_run_spatial_maps(
     """
     Generate all spatial map images for a run for the flipbook viewer.
 
-    Creates separate image files for each available map type (tSNR, std, CoV,
-    dropout, AR1) that can be loaded into the flipbook viewer.
+    Creates separate image files for each available map type that can be loaded
+    into the flipbook viewer.
 
     Parameters
     ----------
     maps : dict
         Dictionary of 3D numpy arrays with keys like 'tsnr', 'mean', 'std',
-        'cov', 'dropout', 'ar1'
+        'temporal_cov', 'low_signal', 'ar1'
     output_dir : Path
         Directory to save the images
     run_prefix : str
@@ -1338,7 +1342,7 @@ def create_run_spatial_maps(
     spatial_map_paths = {}
 
     # Generate images for each available map type
-    for map_key in ['tsnr', 'std', 'cov', 'dropout', 'ar1']:
+    for map_key in ['tsnr', 'std', 'temporal_cov', 'low_signal', 'ar1']:
         if map_key not in maps:
             continue
 

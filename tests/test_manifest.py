@@ -8,10 +8,9 @@ This test suite covers manifest functionality including:
 - Validation
 """
 
-import pytest
-import json
-import yaml
 from pathlib import Path
+
+import yaml
 
 from fmriqc.io.manifest import (
     BIDSEntityExtractor,
@@ -20,7 +19,6 @@ from fmriqc.io.manifest import (
     ManifestSubject,
     QAManifest,
 )
-
 
 # ============================================================================
 # BIDS Entity Extraction Tests

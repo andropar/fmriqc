@@ -1,4 +1,4 @@
-"""Shared utility functions for fmriqa.
+"""Shared utility functions for fmriqc.
 
 This module contains common utility functions used across multiple modules
 to avoid code duplication.

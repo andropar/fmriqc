@@ -1,11 +1,21 @@
 """Integration tests for refactored reporting module."""
 
-import json
-from pathlib import Path
 import tempfile
-import pytest
-from fmriqc.io.structures import StudyResults, SubjectResults, SessionResults, RunResult, RunInfo
-from fmriqc.reporting.reporting import generate_subject_report, generate_study_report
+from pathlib import Path
+
+from fmriqc.io.structures import (
+    MaskInfo,
+    MotionInfo,
+    QAProvenance,
+    RunInfo,
+    RunKey,
+    RunResult,
+    SessionResults,
+    SnapshotInfo,
+    StudyResults,
+    SubjectResults,
+)
+from fmriqc.reporting.reporting import generate_study_report, generate_subject_report
 
 
 def create_minimal_run_result(run_id: str) -> RunResult:
@@ -25,14 +35,15 @@ def create_minimal_run_result(run_id: str) -> RunResult:
         metrics={
             "tsnr_median": 45.2,
             "fd_median": 0.15,
-            "coverage": 0.95,
+            "coverage_signal_fraction": 0.95,
             "gcor": 0.03,
             "dvars_median": 12.5,
+            "dvars_percent_above": 2.0,
         },
         flags={
             "high_motion": False,
             "low_tsnr": False,
-            "tsnr_drop": False,
+            "signal_coverage_low": False,
             "slice_intensity": False,
         },
         series={},
@@ -94,7 +105,8 @@ def test_generate_subject_report():
         assert "FD" in html_content
 
         # Check that template components were included
-        assert "thumbnail-view" in html_content or "detail-view" in html_content
+        assert "timeline-viz" in html_content
+        assert "detail-modal" in html_content
 
         # Check for JavaScript
         assert "<script>" in html_content
@@ -158,13 +170,13 @@ def test_generate_study_report():
         html_content = report_path.read_text()
 
         # Check for key elements
-        assert "fMRI Quality Assurance Report" in html_content
+        assert "Study Quality Report" in html_content
         assert "sub-01" in html_content
         assert "Median tSNR" in html_content
         assert "Median FD" in html_content
 
         # Check that template components work
-        assert "summary-cards" in html_content
+        assert "summary-strip" in html_content
 
         # Check for JavaScript
         assert "<script>" in html_content
@@ -209,8 +221,8 @@ def test_prepare_outlier_data():
 
 def test_prepare_exclusion_data():
     """Test prepare_exclusion_data helper function."""
-    from fmriqc.reporting.reporting import prepare_exclusion_data
     from fmriqc.analysis.exclusions import ExclusionReport, RunExclusion, VolumeScrubbing
+    from fmriqc.reporting.reporting import prepare_exclusion_data
 
     # Create study with exclusion report
     study = StudyResults(
@@ -300,6 +312,63 @@ def test_no_exclusions_returns_none():
     assert exclusion_data is None
 
     print("✓ prepare_exclusion_data correctly returns None for no report")
+
+
+def test_study_report_contains_snapshot_id():
+    run = create_minimal_run_result("run-1")
+    study = StudyResults(
+        subjects=[
+            SubjectResults(
+                subject="01",
+                sessions=[
+                    SessionResults(subject="01", session="1", runs=[run]),
+                ],
+            )
+        ],
+    )
+    study.analysis_metadata = {
+        "snapshot": {"id": "preproc", "label": "Preprocessed", "source_type": "preprocessed"},
+        "thresholds": {"profile": "default"},
+    }
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        html = generate_study_report(study=study, output_dir=Path(tmpdir)).read_text()
+
+    assert "Snapshot preproc" in html
+    assert "Preprocessed" in html
+    assert "Threshold profile: default" in html
+
+
+def test_subject_report_contains_motion_and_mask_provenance():
+    run = create_minimal_run_result("run-1")
+    snapshot = SnapshotInfo(id="preproc")
+    run_key = RunKey(subject="01", session="1", task="rest", run="run-1")
+    mask_info = MaskInfo(path=Path("/data/mask.nii.gz"), source="manifest", resampled=True)
+    motion_info = MotionInfo(path=Path("/data/confounds.tsv"), source="provided_confounds")
+    run.snapshot = snapshot
+    run.run_key = run_key
+    run.mask_info = mask_info
+    run.motion_info = motion_info
+    run.provenance = QAProvenance(
+        snapshot=snapshot,
+        run_key=run_key,
+        bold_path=run.info.path,
+        mask_info=mask_info,
+        motion_info=motion_info,
+        config_hash="hash",
+        software_version="test",
+    )
+    subject = SubjectResults(
+        subject="01",
+        sessions=[SessionResults(subject="01", session="1", runs=[run])],
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        html = generate_subject_report(subject=subject, output_dir=Path(tmpdir)).read_text()
+
+    assert "provided_confounds" in html
+    assert "manifest" in html
+    assert "confounds.tsv" in html
 
 
 if __name__ == "__main__":

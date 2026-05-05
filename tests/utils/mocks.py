@@ -1,9 +1,10 @@
-"""Mocking utilities for fmriqa tests."""
+"""Mocking utilities for fmriqc tests."""
 
-from unittest.mock import Mock, patch, MagicMock
 import subprocess
 from pathlib import Path
 from typing import List, Optional
+from unittest.mock import MagicMock, Mock, patch
+
 import numpy as np
 
 
@@ -143,7 +144,7 @@ def mock_config(overrides: Optional[dict] = None):
     Returns:
         Mock QAConfig object
     """
-    from fmriqc.orchestration.config import QAConfig, PathConfig, ProcessingConfig, ThresholdConfig
+    from fmriqc.orchestration.config import QAConfig
 
     config = QAConfig()
 

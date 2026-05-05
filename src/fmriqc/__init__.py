@@ -1,7 +1,7 @@
-"""fMRI Quality Assurance Package.
+"""Snapshot-based fMRI quality assessment and review.
 
-The QA pipeline provides comprehensive quality assessment for fMRI data.
-It supports BIDS derivatives, tedana outputs, and custom datasets via manifest files.
+The package assesses one concrete fMRI time-series snapshot at a time and can
+optionally compare two completed snapshot QA outputs.
 
 Basic usage:
     from fmriqc import QAConfig, run_qa

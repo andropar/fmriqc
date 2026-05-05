@@ -1,109 +1,73 @@
 # QA Metrics Reference
 
-Detailed descriptions of all computed quality metrics.
+`fmriqc` computes compact run-level and volume-level diagnostics for one
+fMRI time-series snapshot. Metric interpretation depends on acquisition,
+preprocessing, mask, and motion provenance.
 
 ## Temporal Metrics
 
-### tSNR (Temporal Signal-to-Noise Ratio)
+### tSNR
 
-**Description**: Ratio of mean signal to temporal standard deviation.
+Temporal signal-to-noise ratio is the temporal mean divided by temporal
+standard deviation in each mask voxel, summarized across the mask.
 
-**Formula**: `tSNR = mean(signal) / std(signal)` for each voxel, then median across brain.
+Higher values are often preferable, but smoothing and denoising can increase
+tSNR while also changing the data.
 
-**Good values**: > 50 (depends on field strength, sequence, preprocessing)
+### DVARS
 
-**References**:
-- Murphy et al. (2007). "How long to scan? The relationship between fMRI temporal signal to noise ratio and necessary scan duration."
+DVARS is a frame-to-frame RMS signal-change diagnostic. The standardized DVARS
+used by `fmriqc` is an approximate QA summary and should not be assumed to
+exactly match every external implementation.
 
----
+### FD
 
-### DVARS (D referring to temporal derivative)
+Framewise displacement depends on the motion source:
 
-**Description**: Spatial root mean square of temporal derivative.
+- fMRIPrep confounds with `framewise_displacement`
+- FD computed from six fMRIPrep motion columns
+- FD computed from FSL/MCFLIRT `.par` files
+- optional generated MCFLIRT motion fallback
 
-**Formula**: RMS of frame-to-frame differences, standardized by median absolute deviation.
+Generated motion from raw BOLD can be useful as a fallback acquisition-motion
+estimate. Generated motion from already-preprocessed BOLD is a residual
+realignment estimate.
 
-**Good values**: < 1.5 (standardized)
+### Global Signal PSD
 
-**References**:
-- Power et al. (2012). "Spurious but systematic correlations in functional connectivity MRI networks arise from subject motion."
+The report can show a global-signal PSD diagnostic. It is informational only;
+`fmriqc` does not infer cardiac or respiratory physiology from BOLD alone.
 
----
+### AR(1)
 
-### Framewise Displacement (FD)
-
-**Description**: Scalar measure of head motion between volumes.
-
-**Formula**: Sum of absolute values of 6 motion parameters (3 rotations + 3 translations).
-
-**Good values**: < 0.3 mm (strict), < 0.5 mm (lenient)
-
-**References**:
-- Power et al. (2012). "Spurious but systematic correlations in functional connectivity MRI networks arise from subject motion."
-
----
+Lag-1 temporal autocorrelation after simple detrending. Interpretation is
+contextual and depends on preprocessing and temporal filtering.
 
 ## Spatial Metrics
 
-### Coverage
+### Signal Coverage Fraction
 
-**Description**: Percentage of brain covered by valid (non-zero) signal.
+Fraction of mask voxels with positive mean signal. This is not a full
+anatomical field-of-view coverage estimate.
 
-**Good values**: > 85%
+### Low-Signal Map
 
----
+Map of the lowest-signal percentile within the mask. It is a review aid, not a
+formal susceptibility-loss measurement.
 
-### Smoothness (FWHM)
+### Apparent Smoothness
 
-**Description**: Spatial smoothness estimated from residuals.
+Estimated from demeaned time-series data. This is not formal GLM residual
+smoothness and should be interpreted as contextual.
 
-**Units**: mm (full-width at half-maximum)
+### GCOR
 
-**Interpretation**: Data-dependent. Lower = less smooth (more detail), higher = more smooth.
+Global correlation summary across mask voxels. High values can reflect global
+structure, preprocessing, motion, or other shared signal sources.
 
----
+## Flags and Candidate Censor Vectors
 
-### GCOR (Global Correlation)
+Run flags are threshold-based QA indicators. Candidate censor vectors use FD
+and DVARS series to identify volumes that may need project-specific handling.
 
-**Description**: Average correlation between all voxel pairs.
-
-**Good values**: < 0.2
-
-**References**:
-- Saad et al. (2013). "Correcting brain-wide correlation differences in resting-state fMRI."
-
----
-
-### AR(1) (First-order Autoregression)
-
-**Description**: Temporal autocorrelation at lag 1.
-
-**Good values**: 0.2 - 0.6
-
-**Interpretation**: Too low suggests over-aggressive preprocessing, too high suggests insufficient temporal filtering.
-
----
-
-## Outlier Metrics
-
-### Outlier Timepoints
-
-**Description**: Volumes flagged as outliers based on DVARS and FD thresholds.
-
-**Threshold**: DVARS > 2.5 SD OR FD > 0.5 mm
-
-**Good values**: < 5% of volumes
-
----
-
-### Mahalanobis Distance
-
-**Description**: Multivariate distance from center of quality metric distribution.
-
-**Usage**: Identifies runs that are outliers across multiple metrics simultaneously.
-
-**Threshold**: > 3.0
-
----
-
-For implementation details, see `src/fmriqa/core/metrics.py`.
+Automatic flags are not final scientific exclusions.

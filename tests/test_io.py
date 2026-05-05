@@ -4,27 +4,24 @@ This test suite covers I/O functionality including:
 - BIDS entity extraction
 - RunInfo creation from paths and manifests
 - BIDSPathResolver for finding related files
-- File discovery (masks, motion params, events, fieldmaps)
+- File discovery (masks, motion params)
 - Path resolution and normalization
 """
 
-import pytest
-import numpy as np
 from pathlib import Path
 
+import pytest
+
 from fmriqc.io.io import (
-    extract_entities,
-    resolve_subject_session,
+    BIDSPathResolver,
     create_run_info,
     create_run_info_from_manifest,
-    BIDSPathResolver,
+    extract_entities,
     find_mask_path,
     locate_motion_params,
-    find_events_file,
-    find_fieldmap_data,
+    resolve_subject_session,
 )
 from fmriqc.io.structures import RunInfo
-
 
 # ============================================================================
 # Entity Extraction Tests
@@ -150,7 +147,7 @@ class TestCreateRunInfo:
 
         assert info.subject == "10"
         assert info.session == "02"
-        assert info.run == "00"  # Default run
+        assert info.run == "01"  # Default run
 
     def test_create_from_multiecho(self):
         """Test creating RunInfo from multiecho."""
@@ -331,69 +328,6 @@ class TestBIDSPathResolver:
 
         assert found_motion is None
 
-    def test_find_events_file(self, tmp_path):
-        """Test finding BIDS events file."""
-        # Create BIDS directory structure
-        bids_dir = tmp_path / "bids_dataset"
-        derivatives_dir = tmp_path / "bids_dataset" / "derivatives" / "pipeline"
-        func_dir = bids_dir / "sub-01" / "ses-01" / "func"
-        func_dir.mkdir(parents=True)
-
-        events_file = func_dir / "sub-01_ses-01_task-rest_run-01_events.tsv"
-        events_file.touch()
-
-        info = RunInfo(
-            path=Path("/data/bold.nii.gz"),
-            subject="01", session="01", run="01", task="rest",
-            echo=None, part=None, desc=None,
-        )
-
-        resolver = BIDSPathResolver(derivatives_dir)
-        found_events = resolver.find_events(info)
-
-        assert found_events == events_file
-
-    def test_find_fieldmap(self, tmp_path):
-        """Test finding fieldmap files."""
-        derivatives_dir = tmp_path / "derivatives"
-        fmap_dir = derivatives_dir / "sub-01" / "ses-01" / "fmap"
-        fmap_dir.mkdir(parents=True)
-
-        phasediff = fmap_dir / "sub-01_ses-01_phasediff.nii.gz"
-        magnitude = fmap_dir / "sub-01_ses-01_magnitude1.nii.gz"
-        phasediff.touch()
-        magnitude.touch()
-
-        info = RunInfo(
-            path=Path("/data/bold.nii.gz"),
-            subject="01", session="01", run="01", task="rest",
-            echo=None, part=None, desc=None,
-        )
-
-        resolver = BIDSPathResolver(derivatives_dir)
-        fmap_files = resolver.find_fieldmap(info)
-
-        assert fmap_files is not None
-        assert 'phasediff' in fmap_files
-        assert 'magnitude' in fmap_files
-        assert fmap_files['phasediff'] == phasediff
-
-    def test_find_fieldmap_no_files(self, tmp_path):
-        """Test finding fieldmap when none exist."""
-        derivatives_dir = tmp_path / "derivatives"
-        derivatives_dir.mkdir()
-
-        info = RunInfo(
-            path=Path("/data/bold.nii.gz"),
-            subject="01", session="01", run="01", task="rest",
-            echo=None, part=None, desc=None,
-        )
-
-        resolver = BIDSPathResolver(derivatives_dir)
-        fmap_files = resolver.find_fieldmap(info)
-
-        assert fmap_files is None
-
 
 # ============================================================================
 # Backward Compatibility Wrapper Tests
@@ -440,41 +374,3 @@ class TestBackwardCompatibilityWrappers:
 
         found_motion = locate_motion_params(derivatives_dir, info, target_echo=1)
         assert found_motion == motion_file
-
-    def test_find_events_file_wrapper(self, tmp_path):
-        """Test find_events_file wrapper."""
-        bids_dir = tmp_path / "bids_dataset"
-        derivatives_dir = tmp_path / "bids_dataset" / "derivatives" / "pipeline"
-        func_dir = bids_dir / "sub-01" / "ses-01" / "func"
-        func_dir.mkdir(parents=True)
-
-        events_file = func_dir / "sub-01_ses-01_task-rest_run-01_events.tsv"
-        events_file.touch()
-
-        info = RunInfo(
-            path=Path("/data/bold.nii.gz"),
-            subject="01", session="01", run="01", task="rest",
-            echo=None, part=None, desc=None,
-        )
-
-        found_events = find_events_file(derivatives_dir, info)
-        assert found_events == events_file
-
-    def test_find_fieldmap_data_wrapper(self, tmp_path):
-        """Test find_fieldmap_data wrapper."""
-        derivatives_dir = tmp_path / "derivatives"
-        fmap_dir = derivatives_dir / "sub-01" / "ses-01" / "fmap"
-        fmap_dir.mkdir(parents=True)
-
-        phasediff = fmap_dir / "sub-01_ses-01_phasediff.nii.gz"
-        phasediff.touch()
-
-        info = RunInfo(
-            path=Path("/data/bold.nii.gz"),
-            subject="01", session="01", run="01", task="rest",
-            echo=None, part=None, desc=None,
-        )
-
-        fmap_files = find_fieldmap_data(derivatives_dir, info)
-        assert fmap_files is not None
-        assert 'phasediff' in fmap_files

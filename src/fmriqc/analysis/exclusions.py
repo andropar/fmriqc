@@ -1,19 +1,20 @@
-"""Automatic exclusion recommendations for QA results (CIR-212).
+"""Candidate QA review recommendations and volume-level censor vectors.
 
-This module generates exclusion recommendations at both run and volume levels,
-with configurable stringency profiles and export to common formats.
+This module keeps the legacy data structures for compatibility, but user-facing
+outputs should be treated as candidate flags for manual review rather than
+authoritative scientific exclusions.
 """
 
 import json
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any, Callable
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from fmriqc.io.structures import RunResult, SessionResults, StudyResults
 from fmriqc.core.constants import STRINGENCY_PROFILES, QualityThresholds
+from fmriqc.io.structures import RunResult
 
 
 class ExclusionStringency(Enum):
@@ -150,11 +151,11 @@ class ExclusionEvaluator:
         # Coverage
         if self.criteria_obj.coverage_min is not None:
             criteria_list.append(ExclusionCriterion(
-                name='coverage',
-                metric_key='coverage',
+                name='coverage_signal_fraction',
+                metric_key='coverage_signal_fraction',
                 threshold=self.criteria_obj.coverage_min,
                 comparison='lt',
-                reason_template='Brain coverage ({value:.1%}) below threshold ({threshold:.1%})'
+                reason_template='Signal coverage fraction ({value:.1%}) below threshold ({threshold:.1%})'
             ))
 
         return criteria_list
@@ -182,7 +183,9 @@ class ExclusionEvaluator:
             (reasons, excluded) - list of reasons and whether to exclude
         """
         reasons = []
-        metrics = result.metrics
+        metrics = dict(result.metrics)
+        if "coverage_signal_fraction" not in metrics and "coverage" in metrics:
+            metrics["coverage_signal_fraction"] = metrics["coverage"]
 
         # Check all standard criteria
         for criterion in self.criteria_list:
@@ -681,7 +684,7 @@ def generate_methods_text(report: ExclusionReport) -> str:
     summary = report.summary
 
     text_parts = [
-        f"Quality-based exclusion was performed using {report.stringency} criteria. "
+        f"Candidate quality review flags were generated using {report.stringency} criteria. "
     ]
 
     # Describe criteria
@@ -700,21 +703,21 @@ def generate_methods_text(report: ExclusionReport) -> str:
         criteria_descriptions.append(f"Mahalanobis distance > {criteria['mahalanobis_max']}")
 
     if criteria_descriptions:
-        text_parts.append("Runs were excluded if they met any of the following criteria: ")
+        text_parts.append("Runs were flagged for manual review if they met any of the following criteria: ")
         text_parts.append(", ".join(criteria_descriptions))
         text_parts.append(". ")
 
     # Describe results
     text_parts.append(
         f"Of {summary['total_runs']} runs, {summary['excluded_runs']} "
-        f"({summary['exclusion_rate_percent']:.1f}%) were excluded. "
+        f"({summary['exclusion_rate_percent']:.1f}%) received candidate run flags. "
     )
 
     if summary['total_volumes'] > 0:
         text_parts.append(
             f"Volume-level scrubbing flagged {summary['flagged_volumes']} of "
             f"{summary['total_volumes']} volumes ({summary['volume_data_loss_percent']:.1f}%) "
-            f"for censoring in remaining runs."
+            f"as candidate censor volumes."
         )
 
     return "".join(text_parts)

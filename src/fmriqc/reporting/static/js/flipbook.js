@@ -25,6 +25,7 @@ function openRunDetail(runId) {
 
     // Update metrics grid
     updateDetailMetrics(run);
+    updateDetailProvenance(run);
 
     // Update flipbook
     initFlipbook(run);
@@ -48,7 +49,7 @@ function updateDetailMetrics(run) {
 
     grid.innerHTML = '';
 
-    const metricsToShow = ['tsnr_median', 'fd_median', 'dvars_std_median', 'coverage', 'gcor', 'smoothness_fwhm'];
+    const metricsToShow = ['tsnr_median', 'fd_median', 'dvars_std_median', 'coverage_signal_fraction', 'gcor', 'apparent_smoothness_fwhm'];
 
     metricsToShow.forEach(key => {
         const value = run.metrics[key];
@@ -89,6 +90,33 @@ function updateDetailMetrics(run) {
     }
 }
 
+function updateDetailProvenance(run) {
+    const grid = document.getElementById('detail-provenance-grid');
+    if (!grid) return;
+    grid.innerHTML = '';
+
+    const provenance = run.provenance || {};
+    const maskInfo = provenance.mask_info || {};
+    const motionInfo = provenance.motion_info || {};
+    const rows = [
+        ['BOLD', provenance.bold_path || ''],
+        ['Mask source', maskInfo.source || 'missing'],
+        ['Mask path', maskInfo.path || ''],
+        ['Mask resampled', maskInfo.resampled ? 'yes' : 'no'],
+        ['Motion source', motionInfo.source || 'missing'],
+        ['Motion path', motionInfo.path || ''],
+        ['Motion diagnostic', motionInfo.diagnostic_only ? 'yes' : 'no'],
+        ['Warnings', (run.warnings || []).join('; ')]
+    ];
+
+    rows.forEach(([label, value]) => {
+        const item = document.createElement('div');
+        item.className = 'detail-item';
+        item.innerHTML = `<div class="label">${label}</div><div class="value">${value || '-'}</div>`;
+        grid.appendChild(item);
+    });
+}
+
 /**
  * Initialize the flipbook viewer for a run
  */
@@ -102,10 +130,10 @@ function initFlipbook(run) {
         { key: 'mean_mask', label: 'Mean + Mask', default: true },
         { key: 'tsnr', label: 'tSNR' },
         { key: 'std', label: 'Std Dev' },
-        { key: 'cov', label: 'CoV' },
-        { key: 'dropout', label: 'Dropout' },
+        { key: 'temporal_cov', label: 'Temporal CoV' },
+        { key: 'low_signal', label: 'Low Signal' },
         { key: 'ar1', label: 'AR1' }
-    ];
+    ].filter(map => run.spatialMaps?.[map.key]);
 
     // Create buttons
     buttons.innerHTML = '';
@@ -119,8 +147,8 @@ function initFlipbook(run) {
     });
 
     // Show default map
-    const defaultMap = maps.find(m => m.default);
-    switchFlipbookMap(run, defaultMap.key);
+    const defaultMap = maps.find(m => m.default) || maps[0];
+    if (defaultMap) switchFlipbookMap(run, defaultMap.key);
 }
 
 /**
@@ -139,16 +167,12 @@ function switchFlipbookMap(run, mapKey) {
     // Get the appropriate image path from spatialMaps
     let imagePath = run.spatialMaps?.[mapKey];
 
-    // Debug: log what we're looking for
-    console.log('switchFlipbookMap:', mapKey, 'spatialMaps:', run.spatialMaps, 'found:', imagePath);
-
     if (imagePath) {
         img.src = imagePath;
         img.alt = mapKey;
     } else {
-        // No spatial map available - show placeholder or hide
+        img.removeAttribute('src');
         img.alt = `${mapKey} not available`;
-        console.warn(`Spatial map '${mapKey}' not found for run ${run.id}`);
     }
 }
 
@@ -212,6 +236,7 @@ document.addEventListener('DOMContentLoaded', function() {
  */
 function navigateRunModal(direction) {
     if (!currentRunId || !subjectData || !subjectData.runs) return;
+    saveNotes();
 
     const runs = subjectData.runs;
     const currentIndex = runs.findIndex(r => r.id === currentRunId);

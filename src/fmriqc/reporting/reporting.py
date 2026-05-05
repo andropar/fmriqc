@@ -1,4 +1,4 @@
-"""Report generation for fmriqa v2."""
+"""Report generation for fmriqc snapshot QA."""
 
 import json
 import statistics
@@ -10,7 +10,6 @@ from jinja2 import Environment, FileSystemLoader
 
 from fmriqc.io.structures import StudyResults, SubjectResults
 
-
 # Color palette for sessions
 SESSION_COLORS = [
     '#3b82f6', '#8b5cf6', '#ec4899', '#f97316', '#14b8a6',
@@ -20,13 +19,13 @@ SESSION_COLORS = [
 # Metric metadata
 METRIC_INFO = {
     'tsnr_median': {'label': 'tSNR', 'threshold': 30.0, 'direction': 'higher', 'unit': ''},
-    'fd_median': {'label': 'FD', 'threshold': 0.5, 'direction': 'lower', 'unit': 'mm'},
-    'dvars_std_median': {'label': 'DVARS', 'threshold': 1.5, 'direction': 'lower', 'unit': ''},
-    'coverage': {'label': 'Coverage', 'threshold': 0.85, 'direction': 'higher', 'unit': ''},
-    'gcor': {'label': 'GCOR', 'threshold': None, 'direction': 'lower', 'unit': ''},
-    'smoothness_fwhm': {'label': 'Smoothness', 'threshold': None, 'direction': None, 'unit': 'mm'},
-    'outlier_percent_above': {'label': 'Outlier %', 'threshold': 5.0, 'direction': 'lower', 'unit': '%'},
-    'fd_percent_above': {'label': 'Motion %', 'threshold': 10.0, 'direction': 'lower', 'unit': '%'},
+    'fd_median': {'label': 'FD', 'threshold': 0.3, 'direction': 'lower', 'unit': 'mm'},
+    'dvars_std_median': {'label': 'DVARS', 'threshold': 2.5, 'direction': 'lower', 'unit': ''},
+    'coverage_signal_fraction': {'label': 'Signal coverage', 'threshold': 0.85, 'direction': 'higher', 'unit': ''},
+    'gcor': {'label': 'GCOR', 'threshold': None, 'direction': 'contextual', 'unit': ''},
+    'apparent_smoothness_fwhm': {'label': 'Apparent smoothness', 'threshold': None, 'direction': 'contextual', 'unit': 'mm'},
+    'outlier_percent_above': {'label': 'Outlier %', 'threshold': 10.0, 'direction': 'lower', 'unit': '%'},
+    'fd_percent_above': {'label': 'FD flagged %', 'threshold': 20.0, 'direction': 'lower', 'unit': '%'},
 }
 
 
@@ -112,6 +111,16 @@ def compute_quality_summary(study: StudyResults) -> Dict[str, Any]:
     }
 
 
+def _normalize_metric_aliases(metrics: Dict[str, Any]) -> Dict[str, Any]:
+    """Return report metrics with current names plus legacy aliases if present."""
+    normalized = dict(metrics)
+    if "coverage_signal_fraction" not in normalized and "coverage" in normalized:
+        normalized["coverage_signal_fraction"] = normalized["coverage"]
+    if "apparent_smoothness_fwhm" not in normalized and "smoothness_fwhm" in normalized:
+        normalized["apparent_smoothness_fwhm"] = normalized["smoothness_fwhm"]
+    return normalized
+
+
 def prepare_study_data(study: StudyResults, output_dir: Path) -> Dict[str, Any]:
     """Prepare study data for JavaScript."""
     distributions = compute_metric_distributions(study)
@@ -124,21 +133,29 @@ def prepare_study_data(study: StudyResults, output_dir: Path) -> Dict[str, Any]:
                 if run.info.task:
                     run_id += f"_task-{run.info.task}"
 
+                metrics = _normalize_metric_aliases(run.metrics)
                 runs_data.append({
-                    'id': run_id,
+                    'id': run.info.get_identifier(),
                     'subject': f"sub-{subject.subject}",
                     'session': f"ses-{session.session}",
                     'task': run.info.task or '',
+                    'run': run.info.run,
+                    'nVolumes': run.metrics.get('n_volumes'),
+                    'tr': run.metrics.get('tr'),
+                    'maskSource': run.mask_info.source if run.mask_info else '',
+                    'motionSource': run.motion_info.source if run.motion_info else '',
                     'metrics': {k: float(v) if isinstance(v, (int, float)) else v
-                               for k, v in run.metrics.items()},
+                               for k, v in metrics.items()},
                     'flags': run.flags,
                 })
 
     return {
         'runs': runs_data,
         'distributions': distributions,
-        'metricInfo': {k: v for k, v in METRIC_INFO.items()},
+        'metricInfo': dict(METRIC_INFO),
         'subjects': [f"sub-{s.subject}" for s in study.subjects],
+        'snapshot': study.analysis_metadata.get('snapshot', {}),
+        'thresholds': study.analysis_metadata.get('thresholds', {}),
     }
 
 
@@ -184,9 +201,7 @@ def prepare_subject_data(subject: SubjectResults, output_dir: Path, assets_base:
 
     for session in subject.sessions:
         for run in session.runs:
-            run_id = f"sub-{subject.subject}_ses-{session.session}_run-{run.info.run}"
-            if run.info.task:
-                run_id += f"_task-{run.info.task}"
+            run_id = run.info.get_identifier()
 
             # Use asset_paths directly - convert to strings
             thumbnail_path = run.asset_paths.get('thumbnail')
@@ -240,6 +255,7 @@ def prepare_subject_data(subject: SubjectResults, output_dir: Path, assets_base:
                             path = str(path)
                         spatial_maps[map_type] = prefix + path
 
+            metrics = _normalize_metric_aliases(run.metrics)
             runs_data.append({
                 'id': run_id,
                 'session': f"ses-{session.session}",
@@ -247,25 +263,86 @@ def prepare_subject_data(subject: SubjectResults, output_dir: Path, assets_base:
                 'task': run.info.task or '',
                 'label': f"run-{run.info.run}",
                 'metrics': {k: float(v) if isinstance(v, (int, float)) else v
-                           for k, v in run.metrics.items()},
+                           for k, v in metrics.items()},
                 'flags': run.flags,
                 'thumbnailPath': prefix + thumbnail_path if thumbnail_path else None,
                 'figurePath': prefix + figure_path if figure_path else None,
                 'carpetPath': prefix + carpet_path if carpet_path else None,
                 'spatialMaps': spatial_maps,
+                'provenance': run.provenance.to_dict() if run.provenance else {},
+                'warnings': run.warnings,
             })
 
     return {
         'subject': f"sub-{subject.subject}",
+        'snapshotId': subject.sessions[0].runs[0].snapshot.id if subject.sessions and subject.sessions[0].runs and subject.sessions[0].runs[0].snapshot else 'legacy',
+        'snapshotLabel': subject.sessions[0].runs[0].snapshot.label if subject.sessions and subject.sessions[0].runs and subject.sessions[0].runs[0].snapshot else '',
+        'reportId': subject.sessions[0].runs[0].snapshot.id if subject.sessions and subject.sessions[0].runs and subject.sessions[0].runs[0].snapshot else 'legacy',
         'runs': runs_data,
         'metricInfo': metric_info,
+    }
+
+
+def prepare_outlier_data(study: StudyResults) -> Optional[Dict[str, Any]]:
+    """Prepare outlier data for legacy report sections/tests."""
+    report = getattr(study, "outlier_report", None)
+    if not report:
+        return None
+
+    flagged = set(report.get("multivariate_outliers", []))
+    flagged.update(report.get("extreme_motion", []))
+    flagged.update(report.get("low_tsnr", []))
+    for metric_outliers in report.get("univariate_outliers", {}).values():
+        flagged.update(metric_outliers)
+
+    if not flagged:
+        return None
+
+    explanations = {run_id: [] for run_id in sorted(flagged)}
+    for run_id in report.get("multivariate_outliers", []):
+        distance = report.get("mahalanobis_distances", {}).get(run_id)
+        detail = f"Mahalanobis distance {distance:.2f}" if isinstance(distance, (int, float)) else "Multivariate outlier"
+        explanations.setdefault(run_id, []).append(detail)
+    for run_id in report.get("extreme_motion", []):
+        explanations.setdefault(run_id, []).append("Extreme motion")
+    for run_id in report.get("low_tsnr", []):
+        explanations.setdefault(run_id, []).append("Low tSNR")
+    for metric, run_ids in report.get("univariate_outliers", {}).items():
+        for run_id in run_ids:
+            explanations.setdefault(run_id, []).append(f"Univariate outlier: {metric}")
+
+    return {
+        **report,
+        "outlier_explanations": explanations,
+    }
+
+
+def prepare_exclusion_data(study: StudyResults) -> Optional[Dict[str, Any]]:
+    """Prepare candidate review flag data for legacy report sections/tests."""
+    report = getattr(study, "exclusion_report", None)
+    if report is None:
+        return None
+
+    excluded_runs = [run for run in report.run_exclusions if run.excluded]
+    high_scrub_runs = [
+        scrub for scrub in report.volume_scrubbing
+        if scrub.data_loss_percent > 10.0
+    ]
+
+    return {
+        "summary": report.summary,
+        "stringency": report.stringency,
+        "criteria": report.criteria,
+        "excluded_runs": excluded_runs,
+        "high_scrub_runs": high_scrub_runs,
     }
 
 
 def generate_study_report(
     study: StudyResults,
     output_dir: Path,
-    version: str = "0.1.0"
+    version: str = "0.1.0",
+    study_aggregate_path: Optional[Path] = None,
 ) -> Path:
     """Generate the study overview report.
 
@@ -276,7 +353,7 @@ def generate_study_report(
     output_dir : Path
         Output directory
     version : str
-        fmriqa version string
+        fmriqc version string
 
     Returns
     -------
@@ -291,8 +368,6 @@ def generate_study_report(
     d3_content = load_static_file('js/vendor/d3.v7.min.js')
     charts_content = load_static_file('js/charts.js')
     main_content = load_static_file('js/main.js')
-    threshold_controls_content = load_static_file('js/threshold_controls.js')
-
     # Compute distributions for medians
     distributions = compute_metric_distributions(study)
 
@@ -366,10 +441,15 @@ def generate_study_report(
 
     # Prepare study data for JS
     study_data = prepare_study_data(study, output_dir)
+    snapshot = study.analysis_metadata.get('snapshot', {})
+    thresholds = study.analysis_metadata.get('thresholds', {})
+    runs_table = study_data['runs']
 
     # Render
     html = template.render(
         study_name=study.analysis_metadata.get('study_name', 'Study'),
+        snapshot=snapshot,
+        thresholds=thresholds,
         generation_time=datetime.now().strftime('%Y-%m-%d %H:%M'),
         version=version,
         n_subjects=len(study.subjects),
@@ -378,6 +458,7 @@ def generate_study_report(
         median_fd=median_fd,
         quality=quality,
         subjects=subjects_data,
+        runs_table=runs_table,
         default_metrics=default_metrics,
         additional_metrics=additional_metrics,
         scatter_metrics=scatter_metrics,
@@ -388,7 +469,6 @@ def generate_study_report(
         d3_content=d3_content,
         charts_content=charts_content,
         main_content=main_content,
-        threshold_controls_content=threshold_controls_content,
     )
 
     # Write report
@@ -403,7 +483,8 @@ def generate_subject_report(
     output_dir: Path,
     study_report_path: str = "../index.html",
     reviews_path: Optional[Path] = None,
-    version: str = "0.1.0"
+    version: str = "0.1.0",
+    **_: Any,
 ) -> Path:
     """Generate a subject report.
 
@@ -418,7 +499,7 @@ def generate_subject_report(
     reviews_path : Path, optional
         Path to existing reviews JSON file
     version : str
-        fmriqa version string
+        fmriqc version string
 
     Returns
     -------
@@ -440,7 +521,7 @@ def generate_subject_report(
     subject_data = prepare_subject_data(subject, output_dir)
 
     # Session colors
-    sessions = list(set(r['session'] for r in subject_data['runs']))
+    sessions = list({r['session'] for r in subject_data['runs']})
     session_colors = {s: SESSION_COLORS[i % len(SESSION_COLORS)]
                       for i, s in enumerate(sorted(sessions))}
 
@@ -457,8 +538,8 @@ def generate_subject_report(
 
     # Timeline metrics - show more by default
     timeline_metrics = []
-    default_timeline_keys = ['tsnr_median', 'fd_median', 'dvars_std_median', 'coverage']
-    for key in ['tsnr_median', 'fd_median', 'dvars_std_median', 'coverage', 'gcor', 'smoothness_fwhm']:
+    default_timeline_keys = ['tsnr_median', 'fd_median', 'dvars_std_median', 'coverage_signal_fraction']
+    for key in ['tsnr_median', 'fd_median', 'dvars_std_median', 'coverage_signal_fraction', 'gcor', 'apparent_smoothness_fwhm']:
         if key in subject_data['metricInfo']:
             info = subject_data['metricInfo'][key]
             timeline_metrics.append({
@@ -524,7 +605,7 @@ def generate_all_reports(
     output_dir : Path
         Output directory
     version : str
-        fmriqa version string
+        fmriqc version string
 
     Returns
     -------

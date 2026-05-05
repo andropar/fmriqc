@@ -81,8 +81,8 @@
                         <td class="text-muted">{{ run.task or '-' }}</td>
                         <td>
                             <div class="review-toggle">
-                                <button class="review-btn good-btn {{ 'active' if run.review_status == 'good' else '' }}" onclick="setReviewStatus('{{ run.id }}', 'good')">✓</button>
-                                <button class="review-btn bad-btn {{ 'active' if run.review_status == 'exclude' else '' }}" onclick="setReviewStatus('{{ run.id }}', 'exclude')">✗</button>
+                                <button class="review-btn good-btn {{ 'active' if run.review_status == 'good' else '' }}" onclick="setReviewStatus('{{ run.id }}', 'good')" aria-label="Mark run as good">✓</button>
+                                <button class="review-btn bad-btn {{ 'active' if run.review_status == 'exclude' else '' }}" onclick="setReviewStatus('{{ run.id }}', 'exclude')" aria-label="Mark run for review">✗</button>
                             </div>
                         </td>
                     </tr>
@@ -115,7 +115,7 @@
 
 <!-- Detail Modal -->
 <div id="detail-modal" class="modal-overlay">
-    <div class="modal" style="width: 900px;">
+    <div class="modal" style="width: min(1100px, 95vw);">
         <div class="modal-header">
             <div style="display: flex; align-items: center; gap: 1rem;">
                 <div class="run-nav-buttons" style="display: flex; gap: 4px;">
@@ -124,8 +124,8 @@
                 </div>
                 <h2 id="detail-modal-title">Run Details</h2>
                 <div class="review-toggle">
-                    <button id="modal-good-btn" class="review-btn good-btn" onclick="setReviewStatus(currentRunId, 'good')">✓ Good</button>
-                    <button id="modal-bad-btn" class="review-btn bad-btn" onclick="setReviewStatus(currentRunId, 'exclude')">✗ Exclude</button>
+                    <button id="modal-good-btn" class="review-btn good-btn" onclick="setReviewStatus(currentRunId, 'good')" aria-label="Mark run as good">✓ Good</button>
+                    <button id="modal-bad-btn" class="review-btn bad-btn" onclick="setReviewStatus(currentRunId, 'exclude')" aria-label="Mark run for review">✗ Review</button>
                 </div>
             </div>
             <button class="modal-close" onclick="closeModal('detail-modal')">&times;</button>
@@ -134,6 +134,11 @@
             <!-- Metrics grid -->
             <h3>Metrics</h3>
             <div id="detail-metrics-grid" class="detail-grid">
+                <!-- Populated by JS -->
+            </div>
+
+            <h3>Provenance</h3>
+            <div id="detail-provenance-grid" class="detail-grid">
                 <!-- Populated by JS -->
             </div>
 

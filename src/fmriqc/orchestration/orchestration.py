@@ -8,7 +8,7 @@ parallel or serial processing of runs.
 import re
 import sys
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -16,14 +16,17 @@ from typing import Any, Dict, List, Optional, Tuple
 import nibabel as nib
 import numpy as np
 import scipy
+import yaml
 from joblib import Parallel, delayed
 from tqdm import tqdm
 
-from .config import QAConfig
+from fmriqc.core.motion import has_usable_motion
+from fmriqc.core.processing import process_single_run
 from fmriqc.io.io import QACache, load_default_derivatives
 from fmriqc.io.manifest import QAManifest
-from fmriqc.core.processing import process_single_run
-from fmriqc.io.structures import RunResult, SessionResults, StudyResults, SubjectResults
+from fmriqc.io.structures import InputRun, RunResult, SessionResults, StudyResults, SubjectResults
+
+from .config import QAConfig
 
 
 @dataclass
@@ -201,8 +204,8 @@ def discover_runs(
 def setup_output_and_cache(
     config: QAConfig,
     base_output: Path,
-    run_paths: List[Path],
-) -> Tuple[Path, Optional[QACache], List[Path], Dict[Path, RunResult], int]:
+    input_runs: List[InputRun],
+) -> Tuple[Path, Optional[QACache], List[InputRun], Dict[Path, RunResult], int]:
     """Setup output directory and cache system.
 
     Creates output directory structure, initializes cache, and identifies
@@ -214,8 +217,8 @@ def setup_output_and_cache(
         Configuration object
     base_output : Path
         Base directory for output
-    run_paths : List[Path]
-        List of run paths to process
+    input_runs : List[InputRun]
+        Runs to process
 
     Returns
     -------
@@ -227,48 +230,67 @@ def setup_output_and_cache(
         - cached_results_used: Count of cached results
     """
     # Setup output directory
+    import json
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = base_output / config.output_dir_name / timestamp
+    snapshot_id = re.sub(r"[^A-Za-z0-9_.-]+", "-", config.snapshot.id).strip("-") or "snapshot"
+    output_dir = base_output / config.output_dir_name / f"{timestamp}_snapshot-{snapshot_id}"
     output_dir.mkdir(parents=True, exist_ok=True)
     reuse_dir = None
 
     # Save config
     config.to_yaml(output_dir / "qa_config.yaml")
+    (output_dir / "snapshot.json").write_text(
+        json.dumps(config.get_snapshot_info().to_dict(), indent=2)
+    )
+    (output_dir / "qa_config_resolved.yaml").write_text(
+        yaml.safe_dump({"thresholds": config.thresholds.resolve().to_dict()}, sort_keys=False)
+    )
 
     # Initialize cache
     print(f"Initializing cache: {output_dir}")
-    cache = QACache(output_dir, reuse_dir=reuse_dir) if config.use_cache else None
+    cache = (
+        QACache(
+            output_dir,
+            reuse_dir=reuse_dir,
+            config_hash=config.compute_hash(),
+            input_runs=input_runs,
+        )
+        if config.use_cache
+        else None
+    )
 
     results_by_path: Dict[Path, RunResult] = {}
-    runs_to_process: List[Path] = []
+    runs_to_process: List[InputRun] = []
     cached_results_used = 0
 
     if cache and not config.force_reprocess:
         print("Checking cache for existing results...")
-        for run_path in tqdm(run_paths, desc="Checking cache"):
+        for input_run in tqdm(input_runs, desc="Checking cache"):
+            run_path = input_run.bold_path
             if cache.needs_reprocessing(run_path):
-                runs_to_process.append(run_path)
+                runs_to_process.append(input_run)
                 continue
             cached_result = cache.load_run_result(run_path, output_dir)
             if cached_result is not None:
                 results_by_path[run_path] = cached_result
                 cached_results_used += 1
             else:
-                runs_to_process.append(run_path)
+                runs_to_process.append(input_run)
         if cached_results_used:
             print(f"Reused cached QA outputs for {cached_results_used} runs")
     else:
-        runs_to_process = list(run_paths)
+        runs_to_process = list(input_runs)
 
     return output_dir, cache, runs_to_process, results_by_path, cached_results_used
 
 
 def process_runs(
-    runs_to_process: List[Path],
+    runs_to_process: List[InputRun],
     manifest_contexts: Dict[Path, ManifestRunContext],
     config: QAConfig,
     output_dir: Path,
-    run_paths: List[Path],
+    input_runs: List[InputRun],
     results_by_path: Dict[Path, RunResult],
 ) -> List[RunResult]:
     """Process runs in parallel or serial.
@@ -278,7 +300,7 @@ def process_runs(
 
     Parameters
     ----------
-    runs_to_process : List[Path]
+    runs_to_process : List[InputRun]
         Runs that need processing (not cached)
     manifest_contexts : Dict[Path, ManifestRunContext]
         Manifest contexts for each run (empty for glob mode)
@@ -286,8 +308,8 @@ def process_runs(
         Configuration object
     output_dir : Path
         Output directory
-    run_paths : List[Path]
-        Original ordered list of all run paths
+    input_runs : List[InputRun]
+        Original ordered list of all input runs
     results_by_path : Dict[Path, RunResult]
         Existing results (from cache), will be updated
 
@@ -300,13 +322,13 @@ def process_runs(
 
     if runs_to_process:
         # Generate motion parameters if requested
-        if config.generate_motion:
+        if config.motion.strategy == "generate_if_missing":
             from fmriqc.motion_generation import (
-                check_container_runtime,
-                get_container_path,
-                generate_motion_parameters,
                 ContainerNotFoundError,
                 MotionGenerationError,
+                check_container_runtime,
+                generate_motion_parameters,
+                get_container_path,
             )
 
             try:
@@ -321,17 +343,12 @@ def process_runs(
 
                 # Identify runs needing motion parameters
                 runs_needing_motion = []
-                for path in runs_to_process:
+                for input_run in runs_to_process:
+                    path = input_run.bold_path
                     # Check if motion params already available
-                    has_motion = False
-                    if path in manifest_contexts:
-                        ctx = manifest_contexts[path]
-                        has_motion = ctx.motion_path is not None and ctx.motion_path.exists()
-
-                    if not has_motion:
+                    if not has_usable_motion(input_run):
                         # Need to generate motion for this run
-                        # Use run_id from path for naming
-                        run_id = path.stem.replace("_bold", "").replace(".nii", "")
+                        run_id = input_run.get_identifier()
                         runs_needing_motion.append((run_id, path))
 
                 # Generate motion parameters
@@ -343,22 +360,29 @@ def process_runs(
                         n_jobs=config.n_jobs,
                     )
 
-                    # Update manifest contexts with generated .par files
-                    for run_id, path in runs_needing_motion:
-                        if run_id in par_files:
-                            if path not in manifest_contexts:
-                                # Create minimal context for glob mode
-                                manifest_contexts[path] = ManifestRunContext(
-                                    bold_path=path,
-                                    subject_id="unknown",
-                                    session_id="unknown",
-                                    run_label=run_id,
-                                    mask_path=None,
-                                    motion_path=par_files[run_id],
-                                )
-                            else:
-                                # Update existing context
-                                manifest_contexts[path].motion_path = par_files[run_id]
+                    par_by_path = {path: par_files.get(run_id) for run_id, path in runs_needing_motion}
+                    updated_runs = []
+                    for input_run in runs_to_process:
+                        generated_path = par_by_path.get(input_run.bold_path)
+                        if generated_path is None:
+                            updated_runs.append(input_run)
+                            continue
+                        diagnostic_only = (
+                            input_run.snapshot.source_type == "preprocessed"
+                            and config.motion.diagnostic_only_for_preprocessed
+                        )
+                        updated_runs.append(
+                            replace(
+                                input_run,
+                                motion_path=generated_path,
+                                metadata={
+                                    **input_run.metadata,
+                                    "motion_generated": True,
+                                    "motion_diagnostic_only": diagnostic_only,
+                                },
+                            )
+                        )
+                    runs_to_process = updated_runs
 
             except ContainerNotFoundError as e:
                 print(f"\nError: {e}")
@@ -367,38 +391,27 @@ def process_runs(
                 print(f"\nWarning: Motion generation failed: {e}")
                 print("Continuing without generated motion parameters...")
 
-        def worker(path: Path) -> Optional[RunResult]:
-            # For manifest mode, use mask from manifest
-            if path in manifest_contexts:
-                ctx = manifest_contexts[path]
-                return process_single_run(
-                    path,
-                    config,
-                    output_dir,
-                    reference_mask_path=ctx.mask_path,
-                    manifest_context=ctx,
-                )
-            # For glob mode, let process_single_run find its own mask
-            return process_single_run(path, config, output_dir)
+        def worker(input_run: InputRun) -> Optional[RunResult]:
+            return process_single_run(input_run, config, output_dir)
 
         print(f"Processing {len(runs_to_process)} runs...")
         if config.n_jobs == 1:
             processed_results = [
-                worker(path) for path in tqdm(runs_to_process, desc="QA")
+                worker(input_run) for input_run in tqdm(runs_to_process, desc="QA")
             ]
         else:
             processed_results = Parallel(n_jobs=config.n_jobs)(
-                delayed(worker)(path) for path in tqdm(runs_to_process, desc="QA")
+                delayed(worker)(input_run) for input_run in tqdm(runs_to_process, desc="QA")
             )
 
-        for path, result in zip(runs_to_process, processed_results):
+        for input_run, result in zip(runs_to_process, processed_results):
             if result is not None:
-                results_by_path[path] = result
+                results_by_path[input_run.bold_path] = result
 
         successful = sum(1 for r in processed_results if r is not None)
         print(f"Successfully processed {successful} / {len(runs_to_process)} runs")
 
-    results = [results_by_path[path] for path in run_paths if path in results_by_path]
+    results = [results_by_path[input_run.bold_path] for input_run in input_runs if input_run.bold_path in results_by_path]
     return results
 
 
@@ -479,7 +492,7 @@ def compute_overall_metrics(results: List[RunResult]) -> Dict:
             np.mean([r.metrics["outlier_percent_above"] for r in results])
         ),
         "smoothness_mean": float(
-            np.mean([r.metrics["smoothness_fwhm"] for r in results])
+            np.mean([r.metrics["apparent_smoothness_fwhm"] for r in results])
         ),
         "gcor_mean": float(np.mean([r.metrics["gcor"] for r in results])),
         "ar1_median": float(np.median([r.metrics["ar1_median"] for r in results])),
@@ -515,16 +528,9 @@ def build_analysis_metadata(config: QAConfig, run_paths: List[Path]) -> Dict[str
         "manifest_path": (
             str(config.manifest_path) if config.is_manifest_mode() else None
         ),
+        "snapshot": config.get_snapshot_info().to_dict(),
         "total_runs": len(run_paths),
-        "thresholds": {
-            "dvars_z_threshold": config.dvars_z_threshold,
-            "fd_threshold": config.fd_threshold,
-            "fd_median_threshold": config.fd_median_threshold,
-            "outlier_threshold": config.outlier_threshold,
-            "tsnr_drop_threshold": config.tsnr_drop_threshold,
-            "slice_intensity_threshold": config.slice_intensity_threshold,
-            "outlier_metric_threshold": config.outlier_metric_threshold,
-        },
+        "thresholds": config.thresholds.resolve().to_dict(),
         "versions": {
             "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
             "nibabel": nib.__version__,

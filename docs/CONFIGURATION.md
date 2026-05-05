@@ -1,129 +1,127 @@
 # Configuration Options
 
-Complete reference for all configuration options.
+This page documents the public configuration surface for snapshot QA.
 
-## Command-Line Options
+## Assess CLI
 
-### Input Options
+Input:
 
-- `--derivatives-dir PATH` - Derivatives directory containing preprocessed data
-- `--bids-root PATH` - BIDS root directory (optional)
-- `--manifest FILE` - Manifest file path (YAML/JSON)
-- `--config FILE` - Configuration YAML file
+- `--manifest FILE`: YAML or JSON manifest.
+- `--derivatives-dir PATH`: directory to search in glob mode.
+- `--bids-root PATH`: optional BIDS root.
+- `--config FILE`: load a saved YAML config.
+- `--data-source finalinterp|tedana|manifest`: discovery preset.
+- `--glob-pattern PATTERN`: custom discovery pattern.
 
-### Data Source
+Snapshot identity:
 
-- `--data-source TYPE` - Data source preset (finalinterp, tedana, glmsingle, manifest)
-- `--glob-pattern PATTERN` - Custom glob pattern (overrides preset)
-- `--glmsingle-input-source TYPE` - Which preprocessing was used for glmsingle (finalinterp or tedana)
+- `--snapshot-id ID`: short stable snapshot id.
+- `--snapshot-label LABEL`: display label.
+- `--snapshot-source-type raw|preprocessed|denoised|smoothed|custom`.
 
-### Output
+Output:
 
-- `--output-dir-name NAME` - Output directory name (default: QA)
-- `--no-hierarchical` - Disable hierarchical reports
-- `--no-carpetplots` - Skip carpetplot generation
+- `-o, --output-dir-name NAME`: output root name.
+- `--no-carpetplots`: skip carpet plots.
 
-### Processing
+Processing:
 
-- `--n-jobs N` - Number of parallel jobs (default: 1)
-- `--target-echo N` - Target echo for multi-echo data (default: 2)
-- `--no-cache` - Disable incremental caching
-- `--force-reprocess` - Force reprocessing (ignore cache)
-- `--generate-motion` - Generate motion parameters using FSL mcflirt
-- `--fsl-container PATH` - Path to FSL Singularity container (for custom locations)
+- `--n-jobs N`: number of worker processes.
+- `--target-echo N`: target echo for legacy motion lookup.
+- `--no-cache`: disable cache reuse.
+- `--force-reprocess`: ignore existing cache entries.
+- `--dry-run`: list discovered runs.
 
-### Quality Thresholds
+Motion:
 
-- `--dvars-z-threshold FLOAT` - DVARS Z-score threshold (default: 2.5)
-- `--fd-threshold FLOAT` - FD threshold in mm (default: 0.3)
-- `--fd-median-threshold FLOAT` - Median FD threshold for run exclusion (default: 0.2)
-- `--outlier-threshold FLOAT` - Proportion of outlier timepoints for flagging (default: 0.02)
-- `--tsnr-drop-threshold FLOAT` - tSNR dropout threshold (default: 0.25)
-- `--outlier-metric-threshold FLOAT` - Mahalanobis distance threshold (default: 3.0)
+- `--generate-motion`: generate MCFLIRT motion only when supported motion is missing.
+- `--motion-strategy prefer_provided|generate_if_missing|none`.
+- `--fsl-container PATH`: FSL container path.
+- `--container-download ask|never|auto`.
 
-### Exclusion Recommendations
+Thresholds:
 
-- `--exclusion-stringency TYPE` - Stringency level (liberal, moderate, conservative)
+- `--threshold-profile lenient|default|strict`.
+- `--fd-threshold FLOAT`: volume FD threshold.
+- `--fd-median-threshold FLOAT`: run-level median FD threshold.
+- `--dvars-z-threshold FLOAT`: standardized DVARS threshold.
+- `--outlier-threshold FLOAT`: outlier-fraction threshold.
+- `--outlier-metric-threshold FLOAT`: Mahalanobis threshold.
 
-### Reuse/Regenerate
+Review support:
 
-- `--reuse-from PATH` - Reuse cached QA results from previous output directory
-- `--reports-only PATH` - Regenerate reports from existing QA directory without recomputing metrics
+- `--disable-outliers`: skip study-level outlier detection.
+- `--generate-review-recommendations`: write candidate run flags and candidate
+  censor vectors.
+- `--exclusion-stringency liberal|moderate|conservative`: legacy name for the
+  candidate review profile.
 
-### Utility
+Reuse:
 
-- `--dry-run` - Print runs that would be processed without running QA
+- `--reuse-from PATH`: reuse cached results from a previous output directory.
 
-## Configuration File Format
+## Compare CLI
 
-YAML format with hierarchical structure:
+```bash
+fmriqc compare LEFT_QA_DIR RIGHT_QA_DIR -o OUTPUT
+```
+
+Options:
+
+- `--left-label LABEL`
+- `--right-label LABEL`
+- `--spatial-compare-mode side-by-side|resample-left-to-right|resample-right-to-left`
+
+The default spatial mode is side-by-side.
+
+## YAML Shape
 
 ```yaml
 paths:
-  derivatives_dir: /path/to/derivatives
-  bids_root: /path/to/bids  # optional
-  output_dir_name: QA
+  derivatives_dir: /data/derivatives/fmriprep
+  bids_root: /data/bids
+  manifest_path: null
+  output_dir_name: QA_preproc
+
+snapshot:
+  id: preproc
+  label: fMRIPrep output
+  source_type: preprocessed
+  pipeline_name: fMRIPrep
+  pipeline_version: "24.0.1"
 
 processing:
   n_jobs: 4
-  target_echo: 2
   use_cache: true
   force_reprocess: false
-  data_source: tedana
-  glob_pattern: ""  # empty = use data_source preset
-  generate_motion: false
-  fsl_container_path: null  # null = auto-download
+  data_source: finalinterp
+  glob_pattern: ""
+
+motion:
+  strategy: prefer_provided
+  generation_tool: mcflirt
+  fsl_container_path: null
+  download_policy: ask
+  diagnostic_only_for_preprocessed: true
 
 thresholds:
-  dvars_z_threshold: 2.5
+  profile: default
   fd_threshold: 0.3
   fd_median_threshold: 0.2
+  dvars_z_threshold: 2.5
   outlier_threshold: 0.02
-  tsnr_drop_threshold: 0.25
   outlier_metric_threshold: 3.0
+
+analysis:
+  detect_outliers: true
+  generate_exclusions: false
+  exclusion_stringency: moderate
 
 visualization:
   generate_carpetplots: true
 
-analysis:
-  exclusion_stringency: moderate  # liberal, moderate, conservative
-
 reporting:
-  organize_hierarchical: true
+  generate_group_plots: true
 ```
 
-## Python API
-
-```python
-from pathlib import Path
-from fmriqa.orchestration.config import (
-    QAConfig,
-    PathConfig,
-    ProcessingConfig,
-    ThresholdConfig,
-)
-
-# Create config programmatically
-config = QAConfig(
-    paths=PathConfig(
-        derivatives_dir=Path("/data/derivatives"),
-        output_dir_name="QA",
-    ),
-    processing=ProcessingConfig(
-        n_jobs=4,
-        generate_motion=True,
-    ),
-    thresholds=ThresholdConfig(
-        fd_threshold=0.5,
-        dvars_z_threshold=3.0,
-    ),
-)
-
-# Or load from YAML
-config = QAConfig.from_yaml("qa_config.yaml")
-
-# Save to YAML
-config.to_yaml("saved_config.yaml")
-```
-
-For more details, see `src/fmriqa/orchestration/config.py`.
+`qa_config_resolved.yaml` records resolved thresholds for each output run.

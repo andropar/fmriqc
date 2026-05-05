@@ -1,44 +1,57 @@
 """Run-level QA processing."""
 
 import time
-import numpy as np
-import nibabel as nib
 from pathlib import Path
-from typing import Dict, Optional, Any, Tuple, TYPE_CHECKING, List
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
-from fmriqc.orchestration.config import QAConfig
-from fmriqc.io.structures import RunInfo, RunResult
-from .constants import (
-    StatisticalConstants,
-    MotionConstants,
-    IOConstants,
-    QualityThresholds,
-)
+import nibabel as nib
+import numpy as np
+
 from fmriqc.io.io import (
-    find_mask_path,
-    locate_motion_params,
-    find_events_file,
-    find_fieldmap_data,
-    ensure_mask_aligned,
     create_run_info,
     create_run_info_from_manifest,
+    ensure_mask_aligned,
+    find_mask_path,
+    locate_motion_params,
     persist_run_assets,
 )
+from fmriqc.io.structures import (
+    InputRun,
+    MaskInfo,
+    MotionInfo,
+    QAProvenance,
+    RunInfo,
+    RunResult,
+    SnapshotInfo,
+)
+from fmriqc.orchestration.config import QAConfig
+
+from .constants import (
+    IOConstants,
+    StatisticalConstants,
+)
+from .motion import choose_motion_path, load_fd_series
+from .thresholds import ResolvedThresholds
 
 if TYPE_CHECKING:
     from fmriqc.orchestration.orchestration import ManifestRunContext
-from .metrics import (compute_fd, compute_dvars_standardized, compute_slice_quality,
-                      assess_brain_mask_quality, detect_physiological_noise,
-                      validate_events_file, assess_sdc_quality, compute_smoothness,
-                      compute_ar1, detrend_poly, robust_z, compute_gcor)
 from fmriqc.visualization.visualization import (
-    create_run_figure,
     create_carpetplot,
-    create_run_thumbnail,
-    create_run_spatial_maps,
     create_mean_mask_overlay,
+    create_run_figure,
+    create_run_spatial_maps,
+    create_run_thumbnail,
 )
 
+from .metrics import (
+    assess_brain_mask_quality,
+    compute_ar1,
+    compute_dvars_standardized,
+    compute_gcor,
+    compute_slice_quality,
+    compute_smoothness,
+    detrend_poly,
+)
 
 # ============================================================================
 # HELPER FUNCTIONS - Data Loading
@@ -70,7 +83,8 @@ def _load_run_data(
     info: RunInfo,
     reference_mask_path: Optional[Path],
     warnings_list: List[str],
-) -> Optional[Tuple[nib.Nifti1Image, np.ndarray, np.ndarray, int, float]]:
+    explicit_mask_path: Optional[Path] = None,
+) -> Optional[Tuple[nib.Nifti1Image, np.ndarray, np.ndarray, int, float, MaskInfo]]:
     """Load run data and mask.
 
     Parameters
@@ -104,29 +118,59 @@ def _load_run_data(
     # Use reference mask if provided (ensures consistent mask across runs in a session)
     if reference_mask_path is not None:
         mask_path = reference_mask_path
+        mask_source = "reference"
+    elif explicit_mask_path is not None:
+        mask_path = explicit_mask_path
+        mask_source = "manifest"
     else:
         mask_path = find_mask_path(run_path, info)
+        mask_source = "bids_derivative" if mask_path else "missing"
 
     if mask_path is None:
         warnings_list.append("Mask file not found - using simple threshold")
         mean_img = data.mean(axis=-1)
         mask_data = mean_img > (np.percentile(mean_img[mean_img > 0], 5) if np.any(mean_img > 0) else 0)
+        mask_info = MaskInfo(
+            path=None,
+            source="auto_threshold",
+            resampled=False,
+            same_shape=True,
+            same_affine=True,
+            warnings=["Mask file not found; generated simple signal threshold mask"],
+        )
     else:
         try:
             mask_img = nib.load(str(mask_path))
-            mask_img = ensure_mask_aligned(data_img, mask_img)
+            same_shape = data_img.shape[:3] == mask_img.shape[:3]
+            same_affine = bool(np.allclose(data_img.affine, mask_img.affine, atol=1e-3))
+            mask_img, resampled = ensure_mask_aligned(data_img, mask_img)
+            if resampled:
+                warnings_list.append("Mask grid/affine differed from BOLD image and was resampled")
             mask_data = mask_img.get_fdata().astype(bool)
+            mask_info = MaskInfo(
+                path=mask_path,
+                source=mask_source,  # type: ignore[arg-type]
+                resampled=resampled,
+                same_shape=same_shape,
+                same_affine=same_affine,
+            )
         except Exception as e:
             warnings_list.append(f"Cannot load mask: {e}")
             mean_img = data.mean(axis=-1)
             mask_data = mean_img > np.percentile(mean_img[mean_img > 0], 5)
+            mask_info = MaskInfo(
+                path=mask_path,
+                source="auto_threshold",
+                warnings=[f"Cannot load requested mask: {e}"],
+            )
 
     voxel_count = int(mask_data.sum())
     if voxel_count == 0:
         print(f"ERROR: Empty mask for {run_path}")
         return None
+    mask_info.voxel_count = voxel_count
 
-    return data_img, data, mask_data, voxel_count, file_mtime
+    return data_img, data, mask_data, voxel_count, file_mtime, mask_info
 
 
 def _load_motion_parameters(
@@ -135,7 +179,9 @@ def _load_motion_parameters(
     manifest_context: Optional["ManifestRunContext"],
     warnings_list: List[str],
     thresholds: Dict[str, float],
-) -> Tuple[Optional[Path], Optional[np.ndarray], float, float]:
+    input_run: Optional[InputRun] = None,
+    motion_path_override: Optional[Path] = None,
+) -> Tuple[Optional[Path], Optional[np.ndarray], float, float, MotionInfo]:
     """Load and compute motion parameters.
 
     Parameters
@@ -156,8 +202,17 @@ def _load_motion_parameters(
     tuple
         (par_path, fd, fd_percent, fd_median)
     """
-    # Motion parameters - use manifest path if available
-    if manifest_context is not None and manifest_context.motion_path is not None:
+    generated = False
+    diagnostic_only = False
+
+    if input_run is not None:
+        par_path = choose_motion_path(input_run)
+        generated = bool(input_run.metadata.get("motion_generated"))
+        diagnostic_only = bool(input_run.metadata.get("motion_diagnostic_only", False))
+    elif motion_path_override is not None:
+        par_path = motion_path_override
+        generated = True
+    elif manifest_context is not None and manifest_context.motion_path is not None:
         par_path = manifest_context.motion_path
     elif config.derivatives_dir is not None:
         par_path = locate_motion_params(config.derivatives_dir, info, config.target_echo)
@@ -166,21 +221,33 @@ def _load_motion_parameters(
 
     if par_path is not None:
         try:
-            fd = compute_fd(par_path)
-            fd_percent = float(np.mean(fd > thresholds["fd"]) * 100.0)
-            fd_median = float(np.median(fd))
+            fd, motion_info = load_fd_series(
+                par_path,
+                generated=generated,
+                diagnostic_only=diagnostic_only,
+            )
+            warnings_list.extend(motion_info.warnings)
+            if fd.size == 0:
+                fd = None
+                fd_percent = 0.0
+                fd_median = 0.0
+            else:
+                fd_percent = float(np.mean(fd > thresholds["fd"]) * 100.0)
+                fd_median = float(np.median(fd))
         except Exception as e:
             warnings_list.append(f"Cannot compute FD: {e}")
             fd = None
             fd_percent = 0.0
             fd_median = 0.0
+            motion_info = MotionInfo(path=par_path, source="missing", warnings=[str(e)])
     else:
         warnings_list.append("Motion parameters not found")
         fd = None
         fd_percent = 0.0
         fd_median = 0.0
+        motion_info = MotionInfo()
 
-    return par_path, fd, fd_percent, fd_median
+    return par_path, fd, fd_percent, fd_median, motion_info
 
 
 # ============================================================================
@@ -211,14 +278,14 @@ def _compute_spatial_metrics(
     dict
         Dictionary containing:
         - tsnr_median: Median tSNR value
-        - coverage: Brain coverage
+        - coverage_signal_fraction: Fraction of mask voxels with positive mean signal
         - dvars_std: Standardized DVARS timeseries
         - dvars_vstd: Variance-standardized DVARS timeseries
         - dvars_basic: Basic DVARS timeseries
         - dvars_percent: Percentage of volumes above DVARS threshold
         - outlier_fraction: Outlier fraction timeseries
         - outlier_high: Percentage of volumes with high outliers
-        - maps: Dictionary of spatial maps (mean, std, tsnr, cov, dropout, ar1)
+        - maps: Dictionary of spatial maps
         - voxel_count: Number of voxels in mask
     """
     voxel_count = int(mask_data.sum())
@@ -227,15 +294,15 @@ def _compute_spatial_metrics(
     mean_img = data.mean(axis=-1)
     std_img = data.std(axis=-1, ddof=1)
     tsnr_img = np.divide(mean_img, std_img + StatisticalConstants.EPSILON)
-    cov_img = np.divide(std_img, mean_img + StatisticalConstants.EPSILON)
+    temporal_cov_img = np.divide(std_img, mean_img + StatisticalConstants.EPSILON)
 
-    # Coverage
+    # Signal coverage
     mean_brain = mean_img[mask_data]
-    coverage = float(np.count_nonzero(mean_brain > 0) / voxel_count)
+    coverage_signal_fraction = float(np.count_nonzero(mean_brain > 0) / voxel_count)
 
-    # Dropout
+    # Low-signal percentile map, not a formal susceptibility-loss estimate.
     low_thresh = np.percentile(mean_brain, 10)
-    dropout_map = (mean_img < low_thresh).astype(float) * mask_data
+    low_signal_percentile_map = (mean_img < low_thresh).astype(float) * mask_data
 
     # tSNR
     tsnr_median = float(np.median(tsnr_img[mask_data]))
@@ -261,13 +328,13 @@ def _compute_spatial_metrics(
         "mean": mean_img,
         "std": std_img,
         "tsnr": tsnr_img,
-        "cov": cov_img,
-        "dropout": dropout_map,
+        "temporal_cov": temporal_cov_img,
+        "low_signal": low_signal_percentile_map,
     }
 
     return {
         "tsnr_median": tsnr_median,
-        "coverage": coverage,
+        "coverage_signal_fraction": coverage_signal_fraction,
         "dvars_std": dvars_std,
         "dvars_vstd": dvars_vstd,
         "dvars_basic": dvars_basic,
@@ -308,8 +375,7 @@ def _compute_temporal_metrics(
         Dictionary containing:
         - global_signal: Global signal timeseries
         - tr: Repetition time
-        - physio_metrics: Physiological noise metrics
-        - smoothness: Smoothness FWHM
+        - apparent_smoothness_fwhm: Apparent smoothness FWHM
         - gcor: Global correlation
         - ar1_median: Median AR(1) value
         - ar1_brain: AR(1) brain map
@@ -318,12 +384,9 @@ def _compute_temporal_metrics(
     global_signal = masked.mean(axis=1)
     tr = float(data_img.header.get_zooms()[3]) if data_img.ndim == 4 else 1.0
 
-    # Physiological noise
-    physio_metrics = detect_physiological_noise(global_signal, tr)
-
     # Smoothness
     residuals_4d = data - mean_img[..., None]
-    smoothness = compute_smoothness(residuals_4d, data_img.header.get_zooms()[:3])
+    apparent_smoothness_fwhm = compute_smoothness(residuals_4d, data_img.header.get_zooms()[:3])
 
     # GCOR - Global Correlation (Saad et al., 2013)
     gcor = compute_gcor(masked)
@@ -341,8 +404,7 @@ def _compute_temporal_metrics(
     return {
         "global_signal": global_signal,
         "tr": tr,
-        "physio_metrics": physio_metrics,
-        "smoothness": smoothness,
+        "apparent_smoothness_fwhm": apparent_smoothness_fwhm,
         "gcor": gcor,
         "ar1_median": ar1_median,
         "ar1_brain": ar1_brain,
@@ -360,7 +422,7 @@ def _assess_quality_features(
     info: RunInfo,
     config: QAConfig,
     warnings_list: List[str],
-) -> Tuple[Optional[Dict], Dict, Dict, bool, Dict, bool]:
+) -> Tuple[Optional[Dict], Dict]:
     """Assess various quality features.
 
     Parameters
@@ -381,7 +443,7 @@ def _assess_quality_features(
     Returns
     -------
     tuple
-        (slice_qc, mask_quality, sdc_metrics, sdc_assessed, events_validation, events_validated)
+        (slice_qc, mask_quality)
     """
     voxel_count = int(mask_data.sum())
 
@@ -405,32 +467,7 @@ def _assess_quality_features(
             'signal_outside_mask_ratio': 0.0,
         }
 
-    # SDC assessment
-    fmap_files = find_fieldmap_data(config.derivatives_dir, info)
-    sdc_metrics = {}
-    sdc_assessed = False
-    if fmap_files is not None:
-        try:
-            sdc_metrics = assess_sdc_quality(fmap_files)
-            sdc_assessed = True
-        except Exception as e:
-            warnings_list.append(f"SDC assessment failed: {e}")
-
-    # Events validation
-    events_validation = {'valid': False, 'n_events': 0, 'issues': []}
-    events_validated = False
-    events_path = find_events_file(config.derivatives_dir, info)
-    if events_path is not None:
-        try:
-            tr = 1.0  # Will be overridden by actual TR if available
-            events_validation = validate_events_file(events_path, data.shape[-1], tr)
-            events_validated = True
-            if not events_validation['valid']:
-                warnings_list.append(f"Events issues: {events_validation['issues']}")
-        except Exception as e:
-            warnings_list.append(f"Events validation failed: {e}")
-
-    return slice_qc, mask_quality, sdc_metrics, sdc_assessed, events_validation, events_validated
+    return slice_qc, mask_quality
 
 
 # ============================================================================
@@ -542,7 +579,7 @@ def _create_visualizations(
 
 def _compute_quality_flags(
     metrics: Dict[str, float],
-    thresholds: Dict[str, float],
+    thresholds: ResolvedThresholds,
     slice_qc: Optional[Dict],
 ) -> Dict[str, bool]:
     """Compute quality flags based on metrics and thresholds.
@@ -564,17 +601,17 @@ def _compute_quality_flags(
     n_hyperintense = int(np.sum(slice_qc['hyperintense_slices'])) if slice_qc is not None else 0
     slice_outlier_max = float(np.max(slice_qc['slice_outliers'])) if slice_qc is not None else 0.0
 
-    # Quality flags - only flag serious issues
-    # These thresholds are intentionally lenient to avoid over-flagging
     flags = {
-        "tsnr_low": metrics["tsnr_median"] < 25,  # tSNR below 25 is genuinely poor (conservative threshold)
-        "dvars_high": metrics["dvars_percent_above"] > 15.0,  # >15% high-DVARS volumes
-        "outliers_high": metrics["outlier_percent_above"] > 10.0,  # >10% outlier volumes
-        "motion_high": metrics["fd_percent_above"] > 20.0 or metrics["fd_median"] > QualityThresholds.FD_THRESHOLD_DEFAULT,  # serious motion issues
-        "hyperintense_slices": n_hyperintense > 3,  # multiple hyperintense slices
-        "slice_outliers": slice_outlier_max > 0.25,  # >25% outlier in worst slice
-        "mask_fragmented": metrics.get('mask_components', 1) > 3,  # badly fragmented
-        "physiological_noise_high": metrics['physiological_power_ratio'] > 0.5,  # >50% physio
+        "tsnr_low": metrics["tsnr_median"] < thresholds.tsnr_median_min,
+        "dvars_high": metrics["dvars_percent_above"] > thresholds.dvars_percent,
+        "outliers_high": metrics["outlier_percent_above"] > thresholds.outlier_percent,
+        "motion_high": (
+            metrics["fd_percent_above"] > thresholds.fd_percent
+            or metrics["fd_median"] > thresholds.fd_median
+        ),
+        "hyperintense_slices": n_hyperintense > thresholds.hyperintense_slice_max,
+        "slice_outliers": slice_outlier_max > thresholds.slice_outlier_max,
+        "mask_fragmented": metrics.get('mask_components', 1) > thresholds.mask_max_components,
     }
 
     return flags
@@ -595,10 +632,12 @@ def _create_run_result(
     mean_img: np.ndarray,
     warnings_list: List[str],
     slice_qc: Optional[Dict],
-    sdc_assessed: bool,
-    events_validated: bool,
     file_mtime: float,
     processing_time: float,
+    snapshot: SnapshotInfo,
+    mask_info: MaskInfo,
+    motion_info: MotionInfo,
+    config_hash: str,
 ) -> RunResult:
     """Create RunResult object.
 
@@ -632,10 +671,6 @@ def _create_run_result(
         List of warnings
     slice_qc : dict, optional
         Slice quality metrics
-    sdc_assessed : bool
-        Whether SDC was assessed
-    events_validated : bool
-        Whether events were validated
     file_mtime : float
         File modification time
     processing_time : float
@@ -673,11 +708,29 @@ def _create_run_result(
         mean_vector=mean_vector,
         warnings=warnings_list,
         slice_qc=slice_qc,
-        sdc_assessed=sdc_assessed,
-        events_validated=events_validated,
         file_mtime=file_mtime,
         processing_time=processing_time,
         asset_paths=asset_paths,
+        snapshot=snapshot,
+        run_key=info.run_key,
+        mask_info=mask_info,
+        motion_info=motion_info,
+    )
+    try:
+        import fmriqc
+
+        version = getattr(fmriqc, "__version__", "unknown")
+    except Exception:
+        version = "unknown"
+    result.provenance = QAProvenance(
+        snapshot=snapshot,
+        run_key=info.run_key,
+        bold_path=info.path,
+        mask_info=mask_info,
+        motion_info=motion_info,
+        config_hash=config_hash,
+        software_version=version,
+        warnings=list(warnings_list),
     )
 
     return result
@@ -688,18 +741,19 @@ def _create_run_result(
 # ============================================================================
 
 def process_single_run(
-    run_path: Path,
+    run_or_input: Union[Path, InputRun],
     config: QAConfig,
     output_dir: Path,
     reference_mask_path: Optional[Path] = None,
     manifest_context: Optional["ManifestRunContext"] = None,
+    motion_path_override: Optional[Path] = None,
 ) -> Optional[RunResult]:
     """Process a single fMRI run with comprehensive QA.
 
     Parameters
     ----------
-    run_path : Path
-        Path to the 4D BOLD NIfTI file
+    run_or_input : Path or InputRun
+        Resolved InputRun or legacy path to a 4D BOLD NIfTI file
     config : QAConfig
         QA configuration
     output_dir : Path
@@ -713,8 +767,26 @@ def process_single_run(
     warnings_list = []
 
     try:
-        # Create run info - use manifest context if available
-        if manifest_context is not None:
+        input_run = run_or_input if isinstance(run_or_input, InputRun) else None
+        run_path = input_run.bold_path if input_run is not None else Path(run_or_input)
+        snapshot = input_run.snapshot if input_run is not None else config.get_snapshot_info()
+
+        # Create run info - use InputRun/manifest context if available
+        if input_run is not None:
+            key = input_run.run_key.normalized()
+            info = RunInfo(
+                path=run_path,
+                subject=key.subject,
+                session=key.session or "01",
+                run=key.run or "01",
+                task=key.task,
+                echo=key.echo,
+                part=key.part,
+                desc=None,
+                acquisition=key.acquisition,
+                snapshot_id=snapshot.id,
+            )
+        elif manifest_context is not None:
             info = create_run_info_from_manifest(
                 run_path,
                 manifest_context.subject_id,
@@ -723,15 +795,23 @@ def process_single_run(
             )
         else:
             info = create_run_info(run_path)
+            info.snapshot_id = snapshot.id
 
         # Create run directory
         run_dir = _create_run_directories(output_dir, info)
 
         # Load data and mask
-        load_result = _load_run_data(run_path, info, reference_mask_path, warnings_list)
+        explicit_mask_path = input_run.mask_path if input_run is not None else None
+        load_result = _load_run_data(
+            run_path,
+            info,
+            reference_mask_path,
+            warnings_list,
+            explicit_mask_path=explicit_mask_path,
+        )
         if load_result is None:
             return None
-        data_img, data, mask_data, voxel_count, file_mtime = load_result
+        data_img, data, mask_data, voxel_count, file_mtime, mask_info = load_result
 
         # Extract masked timeseries
         masked = data[mask_data].reshape(-1, data.shape[-1]).T
@@ -747,13 +827,25 @@ def process_single_run(
 
         # Load motion parameters
         thresholds = config.get_threshold_dict()
-        par_path, fd, fd_percent, fd_median = _load_motion_parameters(
-            info, config, manifest_context, warnings_list, thresholds
+        par_path, fd, fd_percent, fd_median, motion_info = _load_motion_parameters(
+            info,
+            config,
+            manifest_context,
+            warnings_list,
+            thresholds,
+            input_run=input_run,
+            motion_path_override=motion_path_override,
         )
+        n_volumes = int(data.shape[-1])
+        if fd is not None and len(fd) != n_volumes:
+            warnings_list.append(
+                f"FD length ({len(fd)}) does not match number of volumes ({n_volumes})"
+            )
 
         # Assess quality features
-        slice_qc, mask_quality, sdc_metrics, sdc_assessed, events_validation, events_validated = \
-            _assess_quality_features(data, mask_data, mean_img, info, config, warnings_list)
+        slice_qc, mask_quality = _assess_quality_features(
+            data, mask_data, mean_img, info, config, warnings_list
+        )
 
         # Prepare series data for visualization
         from scipy import signal
@@ -765,11 +857,15 @@ def process_single_run(
             nperseg=min(IOConstants.MAX_INLINE_ARRAY_SIZE, len(detrended_gs))
         )
 
+        fd_series = fd if fd is not None else np.full(n_volumes, np.nan, dtype=float)
+
         series = {
+            "fd": fd_series,
             "dvars": np.concatenate([[np.nan], spatial_results["dvars_basic"]]),
             "dvars_std": np.concatenate([[np.nan], spatial_results["dvars_std"]]),
             "dvars_vstd": np.concatenate([[np.nan], spatial_results["dvars_vstd"]]),
             "dvars_threshold": thresholds["dvars_z"],
+            "fd_threshold": thresholds["fd"],
             "outlier_fraction": spatial_results["outlier_fraction"],
             "global_signal": temporal_results["global_signal"],
             "freq": freq,
@@ -794,28 +890,32 @@ def process_single_run(
             "outlier_percent_above": spatial_results["outlier_high"],
             "fd_percent_above": fd_percent,
             "fd_median": fd_median,
-            "coverage": spatial_results["coverage"],
-            "smoothness_fwhm": temporal_results["smoothness"],
+            "coverage_signal_fraction": spatial_results["coverage_signal_fraction"],
+            "apparent_smoothness_fwhm": temporal_results["apparent_smoothness_fwhm"],
             "gcor": temporal_results["gcor"],
             "ar1_median": temporal_results["ar1_median"],
             "global_mean": float(np.mean(temporal_results["global_signal"])),
             "n_hyperintense_slices": n_hyperintense,
             "slice_outlier_max": slice_outlier_max,
-            **temporal_results["physio_metrics"],
+            "n_volumes": n_volumes,
+            "tr": float(temporal_results["tr"]),
+            "motion_available": fd is not None,
             **mask_quality,
-            **sdc_metrics,
         }
+        # Transitional aliases for older downstream code; reports/docs use the new names.
+        metrics["coverage"] = metrics["coverage_signal_fraction"]
+        metrics["smoothness_fwhm"] = metrics["apparent_smoothness_fwhm"]
 
         # Compute quality flags
-        flags = _compute_quality_flags(metrics, thresholds, slice_qc)
+        flags = _compute_quality_flags(metrics, config.thresholds.resolve(), slice_qc)
 
         # Create result
         processing_time = time.time() - start_time
         result = _create_run_result(
             info, metrics, flags, series, maps, mask_data, data_img,
             figure_path, carpetplot_path, thumbnail_path, spatial_map_paths, mean_img,
-            warnings_list, slice_qc, sdc_assessed, events_validated,
-            file_mtime, processing_time
+            warnings_list, slice_qc, file_mtime, processing_time,
+            snapshot, mask_info, motion_info, config.compute_hash()
         )
 
         try:

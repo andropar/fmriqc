@@ -1,104 +1,82 @@
 # Manifest File Format
 
-Manifest files allow you to specify custom data layouts for non-BIDS datasets.
+Manifest files explicitly list the runs in a snapshot. Version 2 uses a flat
+`runs:` list and is the recommended format.
 
-## Format
-
-YAML format with hierarchical structure:
+## Version 2
 
 ```yaml
-name: "Study Name"  # optional
-base_path: "/path/to/data"  # optional, paths below are relative to this
+version: 2
+name: Main fMRIPrep QA
+description: Standard preprocessed BOLD time series
+base_path: /data/project
 
-subjects:
-  - id: "sub-01"
-    sessions:
-      - id: "ses-01"
-        runs:
-          - bold: "path/to/bold.nii.gz"  # required
-            mask: "path/to/mask.nii.gz"  # optional
-            motion: "path/to/motion.par"  # optional
-            run: "run-01"  # run label
-            label: "task-rest"  # optional task label
+snapshot:
+  id: preproc
+  label: fMRIPrep output
+  source_type: preprocessed
+  pipeline_name: fMRIPrep
+  pipeline_version: "24.0.1"
 
-qa_config:  # optional embedded configuration
-  processing:
-    generate_motion: true
-    n_jobs: 2
-  thresholds:
-    fd_threshold: 0.5
-    dvars_z_threshold: 3.0
+runs:
+  - subject: "01"
+    session: "01"
+    task: rest
+    run: "01"
+    bold: derivatives/fmriprep/sub-01/ses-01/func/sub-01_ses-01_task-rest_run-01_desc-preproc_bold.nii.gz
+    mask: derivatives/fmriprep/sub-01/ses-01/func/sub-01_ses-01_task-rest_run-01_desc-brain_mask.nii.gz
+    confounds: derivatives/fmriprep/sub-01/ses-01/func/sub-01_ses-01_task-rest_run-01_desc-confounds_timeseries.tsv
 ```
 
-## Examples
+Fields:
 
-### Minimal Manifest
+- `bold`: required 4D BOLD NIfTI.
+- `mask`: optional mask. If omitted, `fmriqc` tries derivative discovery or an
+  automatic threshold mask.
+- `confounds`: optional fMRIPrep-style TSV. Preferred when it contains
+  `framewise_displacement`.
+- `motion`: optional FSL/MCFLIRT `.par` file.
+- `subject`, `session`, `task`, `run`, `echo`, `acquisition`, `part`: optional
+  explicit BIDS entities. Explicit manifest entities override path parsing.
+- `label`: display label only. If both `run` and `label` are present, `run`
+  controls identity.
+
+## Legacy Version 1
+
+The older hierarchical manifest shape is still accepted:
 
 ```yaml
+base_path: /data/project
 subjects:
-  - id: "01"
+  - id: sub-01
     sessions:
-      - id: "01"
+      - id: ses-01
         runs:
-          - bold: "data/sub-01/bold.nii.gz"
-            run: "run-01"
+          - bold: sub-01/ses-01/func/sub-01_ses-01_task-rest_run-01_bold.nii.gz
+            mask: sub-01/ses-01/func/sub-01_ses-01_task-rest_run-01_mask.nii.gz
+            motion: sub-01/ses-01/func/sub-01_ses-01_task-rest_run-01.par
+            label: run-01
 ```
 
-### With Motion Generation
+Version 1 manifests are converted internally to `InputRun` objects.
+
+## Embedded Config
+
+Manifests may include a `qa_config:` block. CLI options still override values
+provided on the command line.
 
 ```yaml
-subjects:
-  - id: "01"
-    sessions:
-      - id: "01"
-        runs:
-          - bold: "data/sub-01/bold.nii.gz"
-            mask: "data/sub-01/mask.nii.gz"
-            # motion: omitted - will be generated
-            run: "run-01"
-
 qa_config:
-  processing:
-    generate_motion: true
-```
-
-### Multiple Subjects and Sessions
-
-```yaml
-base_path: "/data/study"
-
-subjects:
-  - id: "sub-01"
-    sessions:
-      - id: "ses-01"
-        runs:
-          - bold: "sub-01/ses-01/func/bold_run-01.nii.gz"
-            motion: "sub-01/ses-01/func/motion_run-01.par"
-            run: "run-01"
-          - bold: "sub-01/ses-01/func/bold_run-02.nii.gz"
-            motion: "sub-01/ses-01/func/motion_run-02.par"
-            run: "run-02"
-      - id: "ses-02"
-        runs:
-          - bold: "sub-01/ses-02/func/bold_run-01.nii.gz"
-            run: "run-01"
-  - id: "sub-02"
-    sessions:
-      - id: "ses-01"
-        runs:
-          - bold: "sub-02/ses-01/func/bold_run-01.nii.gz"
-            run: "run-01"
+  snapshot:
+    id: preproc
+  motion:
+    strategy: prefer_provided
+  analysis:
+    generate_exclusions: false
 ```
 
 ## Validation
 
-The manifest is validated when loaded:
-- All `bold` files must exist
-- If `mask` specified, must exist
-- If `motion` specified, must exist
-- Subject, session, and run IDs must be unique
-
-## Related
-
-- [Motion Generation Guide](MOTION_GENERATION.md) - Using `--generate-motion`
-- [Usage Guide](USAGE.md) - Command-line examples
+Validation checks that required BOLD paths exist and that optional mask,
+motion, and confounds paths exist when provided. Missing subject information
+must be recoverable from the manifest or path.

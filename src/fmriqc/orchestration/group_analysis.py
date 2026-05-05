@@ -1,6 +1,6 @@
 """Group-level analysis and cross-subject visualizations.
 
-This module handles outlier detection, exclusion recommendation generation,
+This module handles outlier detection, candidate review flag generation,
 and creation of group comparison plots across subjects.
 """
 
@@ -8,7 +8,6 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List
 
-from .config import QAConfig
 from fmriqc.analysis.exclusions import (
     ExclusionStringency,
     export_censor_files,
@@ -19,6 +18,8 @@ from fmriqc.analysis.exclusions import (
 from fmriqc.analysis.outliers import generate_outlier_report
 from fmriqc.io.structures import RunResult, StudyResults
 from fmriqc.visualization.visualization import create_subject_comparison_plot
+
+from .config import QAConfig
 
 
 def detect_outliers_for_study(
@@ -71,10 +72,10 @@ def generate_exclusions_for_study(
     output_dir: Path,
     study: StudyResults,
 ) -> None:
-    """Generate exclusion recommendations and save reports.
+    """Generate candidate review recommendations and save reports.
 
-    Creates comprehensive exclusion recommendations based on QA metrics,
-    exports BIDS-compatible exclusion lists, censor files, and methods text.
+    Creates review-support outputs based on QA metrics, exports candidate run
+    flags, candidate censor vectors, and methods text.
 
     Parameters
     ----------
@@ -89,7 +90,7 @@ def generate_exclusions_for_study(
     study : StudyResults
         Study results object to update
     """
-    print("Generating exclusion recommendations...")
+    print("Generating candidate review recommendations...")
 
     # Extract Mahalanobis distances from outlier report
     mahalanobis_distances = {}
@@ -106,7 +107,7 @@ def generate_exclusions_for_study(
         config.exclusion_stringency.lower(), ExclusionStringency.MODERATE
     )
 
-    # Generate exclusion report
+    # Generate candidate review report
     exclusion_report = generate_exclusion_report(
         results,
         stringency=stringency,
@@ -116,30 +117,29 @@ def generate_exclusions_for_study(
     )
     study.exclusion_report = exclusion_report
 
-    # Save exclusion report
-    exclusions_dir = output_dir / "exclusions"
-    exclusions_dir.mkdir(exist_ok=True)
+    review_dir = output_dir / "reviews"
+    review_dir.mkdir(exist_ok=True)
 
-    with open(exclusions_dir / "exclusion_report.json", "w") as f:
+    with open(review_dir / "candidate_run_flags.json", "w") as f:
         json.dump(exclusion_report.to_dict(), f, indent=2)
 
-    # Export exclusion list in TSV format (BIDS-compatible)
+    # Export candidate run flag list in TSV format
     export_exclusion_list(
-        exclusion_report, exclusions_dir / "excluded_runs.tsv", format="tsv"
+        exclusion_report, review_dir / "candidate_run_flags.tsv", format="tsv"
     )
 
-    # Export censor files for volume-level scrubbing
-    censor_dir = exclusions_dir / "censor_files"
+    # Export candidate censor vectors for volume-level review
+    censor_dir = output_dir / "censor" / "candidate_censor_vectors"
     export_censor_files(exclusion_report, censor_dir, format="fsl")
 
     # Save methods text
     methods_text = generate_methods_text(exclusion_report)
-    (exclusions_dir / "methods_text.txt").write_text(methods_text)
+    (review_dir / "methods_text.txt").write_text(methods_text)
 
-    # Log exclusion summary
+    # Log candidate review summary
     summary = exclusion_report.summary
     print(
-        f"  Exclusion recommendations: {summary['excluded_runs']}/{summary['total_runs']} runs "
+        f"  Candidate run flags: {summary['excluded_runs']}/{summary['total_runs']} runs "
         f"({summary['exclusion_rate_percent']:.1f}%)"
     )
     print(
@@ -211,7 +211,7 @@ def generate_group_plots(
     # Smoothness
     plot_path = create_subject_comparison_plot(
         study,
-        "smoothness_fwhm",
+        "apparent_smoothness_fwhm",
         plots_dir / "smoothness_comparison.png",
         "Spatial Smoothness Distribution by Subject",
         "FWHM (mm)",

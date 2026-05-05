@@ -7,31 +7,24 @@ This test suite covers motion generation functionality including:
 - Parallel processing of multiple runs
 """
 
-import pytest
-import numpy as np
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
-import subprocess
+from unittest.mock import Mock, patch
+
+import pytest
 
 from fmriqc.motion_generation import (
-    check_container_runtime,
-    get_container_path,
-    run_mcflirt,
-    generate_motion_parameters,
+    FSL_CONTAINER_FILENAME,
     ContainerNotFoundError,
     MotionGenerationError,
-    FSL_DOCKER_IMAGE,
-    FSL_CONTAINER_FILENAME,
+    check_container_runtime,
+    generate_motion_parameters,
+    get_container_path,
+    run_mcflirt,
 )
-
 from tests.utils.mocks import (
-    mock_docker_available,
-    mock_singularity_available,
     mock_container_execution,
     mock_subprocess_timeout,
-    mock_parallel_execution,
 )
-
 
 # ============================================================================
 # Container Runtime Detection Tests
@@ -342,9 +335,9 @@ class TestGenerateMotionParameters:
         runs = [(run_id, temp_nifti)]
 
         # Mock runtime check
-        with patch('fmriqa.motion_generation.check_container_runtime', return_value='docker'):
+        with patch('fmriqc.motion_generation.check_container_runtime', return_value='docker'):
             # Mock run_mcflirt
-            with patch('fmriqa.motion_generation.run_mcflirt') as mock_mcflirt:
+            with patch('fmriqc.motion_generation.run_mcflirt') as mock_mcflirt:
                 expected_par = tmp_path / "motion_params" / f"{run_id}_mcflirt.par"
                 expected_par.parent.mkdir(parents=True, exist_ok=True)
                 expected_par.touch()
@@ -369,8 +362,8 @@ class TestGenerateMotionParameters:
             ("run-03", temp_nifti),
         ]
 
-        with patch('fmriqa.motion_generation.check_container_runtime', return_value='docker'):
-            with patch('fmriqa.motion_generation.run_mcflirt') as mock_mcflirt:
+        with patch('fmriqc.motion_generation.check_container_runtime', return_value='docker'):
+            with patch('fmriqc.motion_generation.run_mcflirt') as mock_mcflirt:
                 # Mock successful execution
                 def mock_func(func_file, output_dir, container_path, run_id, runtime):
                     par_file = output_dir / f"{run_id}_mcflirt.par"
@@ -400,8 +393,8 @@ class TestGenerateMotionParameters:
             ("run-03", temp_nifti),
         ]
 
-        with patch('fmriqa.motion_generation.check_container_runtime', return_value='docker'):
-            with patch('fmriqa.motion_generation.run_mcflirt') as mock_mcflirt:
+        with patch('fmriqc.motion_generation.check_container_runtime', return_value='docker'):
+            with patch('fmriqc.motion_generation.run_mcflirt') as mock_mcflirt:
                 # Make run-02 fail
                 def mock_func(func_file, output_dir, container_path, run_id, runtime):
                     if run_id == "run-02":
@@ -429,8 +422,8 @@ class TestGenerateMotionParameters:
         """Test that motion_params directory is created."""
         runs = [("test-run", temp_nifti)]
 
-        with patch('fmriqa.motion_generation.check_container_runtime', return_value='docker'):
-            with patch('fmriqa.motion_generation.run_mcflirt') as mock_mcflirt:
+        with patch('fmriqc.motion_generation.check_container_runtime', return_value='docker'):
+            with patch('fmriqc.motion_generation.run_mcflirt') as mock_mcflirt:
                 par_file = tmp_path / "motion_params" / "test-run_mcflirt.par"
                 mock_mcflirt.return_value = (par_file, 10.0)
 
@@ -438,7 +431,7 @@ class TestGenerateMotionParameters:
                 par_file.parent.mkdir(parents=True, exist_ok=True)
                 par_file.touch()
 
-                results = generate_motion_parameters(
+                generate_motion_parameters(
                     runs_needing_motion=runs,
                     output_dir=tmp_path,
                     n_jobs=1,

@@ -26,7 +26,7 @@ Spearman, C. (1910). Correlation calculated from faulty data. British Journal
 of Psychology, 3(3), 271-295.
 """
 
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 import numpy as np
 from scipy import stats
@@ -355,7 +355,7 @@ def assess_run_consistency(results: List[RunResult]) -> Dict[str, float]:
         "fd_median",
         "global_mean",
         "gcor",
-        "smoothness_fwhm",
+        "apparent_smoothness_fwhm",
     ]
 
     for key in metric_keys:

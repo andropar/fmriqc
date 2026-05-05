@@ -10,21 +10,21 @@ This test suite covers cross-run consistency analysis including:
 - Comprehensive consistency reporting
 """
 
-import pytest
-import numpy as np
 from pathlib import Path
 
+import numpy as np
+import pytest
+
 from fmriqc.analysis.consistency import (
-    compute_icc,
     ConsistencyInterpreter,
-    compute_split_half_reliability,
     assess_run_consistency,
-    identify_inconsistent_runs,
     compute_between_run_similarity,
+    compute_icc,
+    compute_split_half_reliability,
     generate_consistency_report,
+    identify_inconsistent_runs,
 )
 from fmriqc.io.structures import RunInfo, RunResult, SessionResults
-
 
 # ============================================================================
 # Fixtures
