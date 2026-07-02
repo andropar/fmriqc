@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 from jinja2 import Environment, FileSystemLoader
 
 from fmriqc.io.structures import StudyResults, SubjectResults
+from fmriqc.utils import coerce_scalar, is_finite_number
 
 # Color palette for sessions
 SESSION_COLORS = [
@@ -78,12 +79,22 @@ def compute_metric_distributions(study: StudyResults) -> Dict[str, List[float]]:
         for session in subject.sessions:
             for run in session.runs:
                 for key, value in run.metrics.items():
-                    if isinstance(value, (int, float)) and value is not None:
+                    if is_finite_number(value):
                         if key not in distributions:
                             distributions[key] = []
                         distributions[key].append(float(value))
 
     return distributions
+
+
+def _json_metric_value(value: Any) -> Any:
+    """Convert scalar metric values to JSON-safe values without inventing missing data."""
+    value = coerce_scalar(value)
+    if is_finite_number(value):
+        return float(value)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return None
+    return value
 
 
 def compute_quality_summary(study: StudyResults) -> Dict[str, Any]:
@@ -183,8 +194,7 @@ def prepare_study_data(study: StudyResults, output_dir: Path) -> Dict[str, Any]:
                     'tr': run.metrics.get('tr'),
                     'maskSource': run.mask_info.source if run.mask_info else '',
                     'motionSource': run.motion_info.source if run.motion_info else '',
-                    'metrics': {k: float(v) if isinstance(v, (int, float)) else v
-                               for k, v in metrics.items()},
+                    'metrics': {k: _json_metric_value(v) for k, v in metrics.items()},
                     'flags': run.flags,
                 })
 
@@ -217,7 +227,7 @@ def prepare_subject_data(subject: SubjectResults, output_dir: Path, assets_base:
     for session in subject.sessions:
         for run in session.runs:
             for key, value in run.metrics.items():
-                if isinstance(value, (int, float)) and value is not None:
+                if is_finite_number(value):
                     if key not in all_metrics:
                         all_metrics[key] = []
                     all_metrics[key].append(float(value))
@@ -274,8 +284,7 @@ def prepare_subject_data(subject: SubjectResults, output_dir: Path, assets_base:
                 'run': run.info.run,
                 'task': run.info.task or '',
                 'label': f"run-{run.info.run}",
-                'metrics': {k: float(v) if isinstance(v, (int, float)) else v
-                           for k, v in metrics.items()},
+                'metrics': {k: _json_metric_value(v) for k, v in metrics.items()},
                 'flags': run.flags,
                 'thumbnailPath': thumbnail_path,
                 'figurePath': figure_path,
@@ -395,10 +404,12 @@ def generate_study_report(
         subj_fd = []
         for session in subj.sessions:
             for run in session.runs:
-                if 'tsnr_median' in run.metrics:
-                    subj_tsnr.append(run.metrics['tsnr_median'])
-                if 'fd_median' in run.metrics:
-                    subj_fd.append(run.metrics['fd_median'])
+                tsnr = run.metrics.get('tsnr_median')
+                fd = run.metrics.get('fd_median')
+                if is_finite_number(tsnr):
+                    subj_tsnr.append(float(tsnr))
+                if is_finite_number(fd):
+                    subj_fd.append(float(fd))
 
         subjects_data.append({
             'id': f"sub-{subj.subject}",
@@ -406,8 +417,8 @@ def generate_study_report(
             'n_runs': n_runs,
             'n_flagged': n_flagged,
             'n_excluded': n_excluded,
-            'tsnr': statistics.median(subj_tsnr) if subj_tsnr else 0,
-            'fd': statistics.median(subj_fd) if subj_fd else 0,
+            'tsnr': statistics.median(subj_tsnr) if subj_tsnr else None,
+            'fd': statistics.median(subj_fd) if subj_fd else None,
             'report_path': f"sub-{subj.subject}/subject_report.html",
         })
 
@@ -448,8 +459,16 @@ def generate_study_report(
     n_runs = sum(len(s.runs) for subj in study.subjects for s in subj.sessions)
 
     # Median metrics
-    median_tsnr = statistics.median(distributions.get('tsnr_median', [0])) if distributions.get('tsnr_median') else 0
-    median_fd = statistics.median(distributions.get('fd_median', [0])) if distributions.get('fd_median') else 0
+    median_tsnr = (
+        statistics.median(distributions['tsnr_median'])
+        if distributions.get('tsnr_median')
+        else None
+    )
+    median_fd = (
+        statistics.median(distributions['fd_median'])
+        if distributions.get('fd_median')
+        else None
+    )
 
     # Prepare study data for JS
     study_data = prepare_study_data(study, output_dir)

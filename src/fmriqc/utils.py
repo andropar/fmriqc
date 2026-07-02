@@ -4,7 +4,7 @@ This module contains common utility functions used across multiple modules
 to avoid code duplication.
 """
 
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Tuple, TypeGuard
 
 import numpy as np
 
@@ -71,3 +71,12 @@ def coerce_scalar(value: Any) -> Any:
     if isinstance(value, np.generic):
         return value.item()
     return value
+
+
+def is_finite_number(value: Any) -> TypeGuard[float]:
+    """Return true for real finite numeric values, excluding booleans."""
+    if isinstance(value, (bool, np.bool_)) or value is None:
+        return False
+    if not isinstance(value, (int, float, np.number)):
+        return False
+    return bool(np.isfinite(value))

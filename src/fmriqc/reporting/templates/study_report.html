@@ -29,11 +29,11 @@
             <span class="label">Runs</span>
         </div>
         <div class="summary-item">
-            <span class="value">{{ "%.1f"|format(median_tsnr) }}</span>
+            <span class="value">{% if median_tsnr is number %}{{ "%.1f"|format(median_tsnr) }}{% else %}-{% endif %}</span>
             <span class="label">Median tSNR</span>
         </div>
         <div class="summary-item">
-            <span class="value">{{ "%.2f"|format(median_fd) }}</span>
+            <span class="value">{% if median_fd is number %}{{ "%.2f"|format(median_fd) }}{% else %}-{% endif %}</span>
             <span class="label">Median FD (mm)</span>
         </div>
     </div>
@@ -200,8 +200,12 @@
                         <td><a href="{{ subject.report_path }}" class="subject-link">{{ subject.id }}</a></td>
                         <td>{{ subject.n_sessions }}</td>
                         <td>{{ subject.n_runs }}</td>
-                        <td class="metric {{ 'bad' if subject.tsnr < 20 else 'warn' if subject.tsnr < 30 else '' }}">{{ "%.1f"|format(subject.tsnr) }}</td>
-                        <td class="metric {{ 'bad' if subject.fd > 0.5 else 'warn' if subject.fd > 0.3 else '' }}">{{ "%.2f"|format(subject.fd) }}</td>
+                        <td class="metric {% if subject.tsnr is number %}{{ 'bad' if subject.tsnr < 20 else 'warn' if subject.tsnr < 30 else '' }}{% endif %}">
+                            {% if subject.tsnr is number %}{{ "%.1f"|format(subject.tsnr) }}{% else %}-{% endif %}
+                        </td>
+                        <td class="metric {% if subject.fd is number %}{{ 'bad' if subject.fd > 0.5 else 'warn' if subject.fd > 0.3 else '' }}{% endif %}">
+                            {% if subject.fd is number %}{{ "%.2f"|format(subject.fd) }}{% else %}-{% endif %}
+                        </td>
                         <td>
                             {% if subject.n_flagged == 0 %}
                             <span class="status-dot good"></span>Good

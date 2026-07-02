@@ -10,6 +10,7 @@ import numpy as np
 
 from fmriqc.core.constants import PlotStyle
 from fmriqc.io.structures import RunInfo, StudyResults
+from fmriqc.utils import is_finite_number
 
 
 def _mid_slices(data: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -1465,8 +1466,8 @@ def create_subject_comparison_plot(
                 if val is None:
                     val = run.metrics.get(f"{metric_key}_median")
 
-                if val is not None and not np.isnan(val):
-                    subject_vals.append(val)
+                if is_finite_number(val):
+                    subject_vals.append(float(val))
 
         if subject_vals:
             data_per_subject.append(subject_vals)

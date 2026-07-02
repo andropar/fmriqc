@@ -191,7 +191,7 @@ class IOConstants:
     MAX_INLINE_ARRAY_SIZE = 256
     """Maximum array size to store inline (vs. as external file)."""
 
-    CACHE_VERSION = "1.0"
+    CACHE_VERSION = "1.1"
     """Cache format version for compatibility checking."""
 
 

@@ -25,6 +25,7 @@ from fmriqc.core.processing import process_single_run
 from fmriqc.io.io import QACache, load_default_derivatives
 from fmriqc.io.manifest import QAManifest
 from fmriqc.io.structures import InputRun, RunResult, SessionResults, StudyResults, SubjectResults
+from fmriqc.utils import is_finite_number
 
 from .config import QAConfig
 
@@ -480,14 +481,18 @@ def compute_overall_metrics(results: List[RunResult]) -> Dict:
     if not results:
         return {}
 
+    fd_values = [
+        float(value)
+        for result in results
+        if is_finite_number(value := result.metrics.get("fd_median"))
+    ]
+
     return {
         "runs": len(results),
         "tsnr_median": float(np.median([r.metrics["tsnr_median"] for r in results])),
         "tsnr_mean": float(np.mean([r.metrics["tsnr_median"] for r in results])),
-        "fd_median": float(
-            np.median([r.metrics.get("fd_median", 0) for r in results])
-        ),
-        "fd_mean": float(np.mean([r.metrics.get("fd_median", 0) for r in results])),
+        "fd_median": float(np.median(fd_values)) if fd_values else None,
+        "fd_mean": float(np.mean(fd_values)) if fd_values else None,
         "dvars_percent_above_mean": float(
             np.mean([r.metrics["dvars_percent_above"] for r in results])
         ),

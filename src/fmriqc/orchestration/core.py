@@ -198,7 +198,11 @@ def run_assess(config: QAConfig) -> int:
         f"  - {len(study.overall_outliers)} outliers detected ({len(study.overall_outliers)/len(results)*100:.1f}%)"
     )
     print(f"  - Median tSNR: {study.overall_metrics['tsnr_median']:.2f}")
-    print(f"  - Median FD: {study.overall_metrics['fd_median']:.3f} mm")
+    median_fd = study.overall_metrics.get("fd_median")
+    if median_fd is None:
+        print("  - Median FD: unavailable (motion parameters not found)")
+    else:
+        print(f"  - Median FD: {median_fd:.3f} mm")
 
     if study.overall_outliers:
         print("\nOutlier runs:")

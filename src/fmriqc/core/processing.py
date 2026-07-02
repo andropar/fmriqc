@@ -25,6 +25,7 @@ from fmriqc.io.structures import (
     SnapshotInfo,
 )
 from fmriqc.orchestration.config import QAConfig
+from fmriqc.utils import is_finite_number
 
 from .constants import (
     IOConstants,
@@ -209,7 +210,7 @@ def _load_motion_parameters(
     thresholds: Dict[str, float],
     input_run: Optional[InputRun] = None,
     motion_path_override: Optional[Path] = None,
-) -> Tuple[Optional[Path], Optional[np.ndarray], float, float, MotionInfo]:
+) -> Tuple[Optional[Path], Optional[np.ndarray], Optional[float], Optional[float], MotionInfo]:
     """Load and compute motion parameters.
 
     Parameters
@@ -228,10 +229,14 @@ def _load_motion_parameters(
     Returns
     -------
     tuple
-        (par_path, fd, fd_percent, fd_median)
+        (par_path, fd, fd_percent, fd_median, motion_info). fd_percent and
+        fd_median are None when no usable FD series is available.
     """
     generated = False
     diagnostic_only = False
+    fd: Optional[np.ndarray] = None
+    fd_percent: Optional[float] = None
+    fd_median: Optional[float] = None
 
     if input_run is not None:
         par_path = choose_motion_path(input_run)
@@ -257,22 +262,22 @@ def _load_motion_parameters(
             warnings_list.extend(motion_info.warnings)
             if fd.size == 0:
                 fd = None
-                fd_percent = 0.0
-                fd_median = 0.0
+                fd_percent = None
+                fd_median = None
             else:
                 fd_percent = float(np.mean(fd > thresholds["fd"]) * 100.0)
                 fd_median = float(np.median(fd))
         except Exception as e:
             warnings_list.append(f"Cannot compute FD: {e}")
             fd = None
-            fd_percent = 0.0
-            fd_median = 0.0
+            fd_percent = None
+            fd_median = None
             motion_info = MotionInfo(path=par_path, source="missing", warnings=[str(e)])
     else:
         warnings_list.append("Motion parameters not found")
         fd = None
-        fd_percent = 0.0
-        fd_median = 0.0
+        fd_percent = None
+        fd_median = None
         motion_info = MotionInfo()
 
     return par_path, fd, fd_percent, fd_median, motion_info
@@ -620,7 +625,7 @@ def _create_visualizations(
 # ============================================================================
 
 def _compute_quality_flags(
-    metrics: Dict[str, float],
+    metrics: Dict[str, Any],
     thresholds: ResolvedThresholds,
     slice_qc: Optional[Dict],
 ) -> Dict[str, bool]:
@@ -642,15 +647,18 @@ def _compute_quality_flags(
     """
     n_hyperintense = int(np.sum(slice_qc['hyperintense_slices'])) if slice_qc is not None else 0
     slice_outlier_max = float(np.max(slice_qc['slice_outliers'])) if slice_qc is not None else 0.0
+    fd_percent = metrics.get("fd_percent_above")
+    fd_median = metrics.get("fd_median")
+    motion_high = (
+        (is_finite_number(fd_percent) and fd_percent > thresholds.fd_percent)
+        or (is_finite_number(fd_median) and fd_median > thresholds.fd_median)
+    )
 
     flags = {
         "tsnr_low": metrics["tsnr_median"] < thresholds.tsnr_median_min,
         "dvars_high": metrics["dvars_percent_above"] > thresholds.dvars_percent,
         "outliers_high": metrics["outlier_percent_above"] > thresholds.outlier_percent,
-        "motion_high": (
-            metrics["fd_percent_above"] > thresholds.fd_percent
-            or metrics["fd_median"] > thresholds.fd_median
-        ),
+        "motion_high": motion_high,
         "hyperintense_slices": n_hyperintense > thresholds.hyperintense_slice_max,
         "slice_outliers": slice_outlier_max > thresholds.slice_outlier_max,
         "mask_fragmented": metrics.get('mask_components', 1) > thresholds.mask_max_components,

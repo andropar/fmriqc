@@ -33,6 +33,7 @@ from scipy import stats
 
 from fmriqc.core.constants import StatisticalConstants
 from fmriqc.io.structures import RunResult, SessionResults
+from fmriqc.utils import is_finite_number
 
 
 def compute_icc(data: np.ndarray, icc_type: str = "2,1") -> float:
@@ -303,8 +304,11 @@ def compute_split_half_reliability(
     if len(results) < 4:
         return np.nan
 
-    values = [r.metrics.get(metric_key, np.nan) for r in results]
-    values = [v for v in values if not np.isnan(v)]
+    values = [
+        float(value)
+        for result in results
+        if is_finite_number(value := result.metrics.get(metric_key))
+    ]
 
     if len(values) < 4:
         return np.nan
@@ -359,8 +363,11 @@ def assess_run_consistency(results: List[RunResult]) -> Dict[str, float]:
     ]
 
     for key in metric_keys:
-        values = [r.metrics.get(key, np.nan) for r in results]
-        values = [v for v in values if not np.isnan(v)]
+        values = [
+            float(value)
+            for result in results
+            if is_finite_number(value := result.metrics.get(key))
+        ]
 
         if len(values) < 2:
             continue
@@ -440,8 +447,9 @@ def identify_inconsistent_runs(
         identifiers = []
 
         for r in results:
-            if key in r.metrics:
-                values.append(r.metrics[key])
+            value = r.metrics.get(key)
+            if is_finite_number(value):
+                values.append(float(value))
                 identifiers.append(r.info.get_identifier())
 
         if len(values) < 3:

@@ -281,6 +281,25 @@ class TestComputeQualityFlags:
 
         assert flags["motion_high"]
 
+    def test_missing_motion_metrics_do_not_flag_motion(self):
+        """Missing motion is unavailable, not zero or high motion."""
+        metrics = {
+            "tsnr_median": 40.0,
+            "dvars_percent_above": 5.0,
+            "outlier_percent_above": 3.0,
+            "fd_percent_above": None,
+            "fd_median": None,
+            "mask_components": 1,
+        }
+        slice_qc = {
+            "hyperintense_slices": np.array([False] * 10),
+            "slice_outliers": np.array([0.05] * 10),
+        }
+
+        flags = _compute_quality_flags(metrics, ResolvedThresholds(), slice_qc)
+
+        assert not flags["motion_high"]
+
     def test_hyperintense_slices_flag(self):
         """Test hyperintense slices flag."""
         metrics = {
@@ -394,6 +413,11 @@ class TestProcessSingleRun:
         assert "dvars_std" in result.series
         assert "fd" in result.series
         assert len(result.series["fd"]) == result.metrics["n_volumes"]
+        assert np.isnan(result.series["fd"]).all()
+        assert result.metrics["motion_available"] is False
+        assert result.metrics["fd_median"] is None
+        assert result.metrics["fd_percent_above"] is None
+        assert result.motion_info.source == "missing"
 
         # Check maps
         assert "mean" in result.maps

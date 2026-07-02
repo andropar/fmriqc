@@ -1,5 +1,6 @@
 """Integration tests for refactored reporting module."""
 
+import re
 import tempfile
 from pathlib import Path
 
@@ -15,7 +16,12 @@ from fmriqc.io.structures import (
     StudyResults,
     SubjectResults,
 )
-from fmriqc.reporting.reporting import generate_study_report, generate_subject_report
+from fmriqc.reporting.reporting import (
+    compute_metric_distributions,
+    generate_study_report,
+    generate_subject_report,
+    prepare_study_data,
+)
 
 
 def create_minimal_run_result(run_id: str) -> RunResult:
@@ -182,6 +188,37 @@ def test_generate_study_report():
         assert "<script>" in html_content
 
         print(f"✓ Study report generated successfully: {report_path}")
+
+
+def test_missing_fd_stays_missing_in_study_report(tmp_path):
+    """Missing motion should not be summarized as zero FD."""
+    run = create_minimal_run_result("run-1")
+    run.metrics["fd_median"] = None
+    run.metrics["fd_percent_above"] = None
+    run.metrics["motion_available"] = False
+    run.motion_info = MotionInfo(source="missing")
+
+    session = SessionResults(subject="01", session="1", runs=[run])
+    subject = SubjectResults(subject="01", sessions=[session])
+    study = StudyResults(subjects=[subject], overall_metrics={}, overall_outliers=[], group_plots={})
+
+    distributions = compute_metric_distributions(study)
+    study_data = prepare_study_data(study, tmp_path)
+
+    assert "fd_median" not in distributions
+    assert study_data["runs"][0]["metrics"]["fd_median"] is None
+
+    report_path = generate_study_report(study=study, output_dir=tmp_path)
+    html_content = report_path.read_text()
+
+    assert re.search(
+        r'<span class="value">\s*-\s*</span>\s*<span class="label">Median FD',
+        html_content,
+    )
+    assert re.search(
+        r"<td>\s*-\s*</td>\s*<td>2\.0</td>\s*<td>95\.0%</td>\s*<td>missing</td>",
+        html_content,
+    )
 
 
 def test_prepare_outlier_data():

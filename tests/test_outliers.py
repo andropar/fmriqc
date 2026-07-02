@@ -496,6 +496,17 @@ class TestFlagExtremeMotion:
         # All runs have good motion in fixture
         assert len(flagged) == 0
 
+    def test_missing_motion_is_not_extreme_motion(self, sample_run_results):
+        """Test missing FD values are skipped rather than treated as zero or errors."""
+        sample_run_results[0].metrics['fd_median'] = None
+        sample_run_results[0].metrics['fd_percent_above'] = None
+
+        flagged = flag_extreme_motion(
+            sample_run_results, fd_threshold=0.5, fd_percent_threshold=20.0
+        )
+
+        assert sample_run_results[0].info.get_identifier() not in flagged
+
 
 class TestFlagLowTsnr:
     """Test tSNR flagging."""

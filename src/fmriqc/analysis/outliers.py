@@ -7,6 +7,7 @@ import numpy as np
 
 from fmriqc.core.constants import StatisticalConstants
 from fmriqc.io.structures import RunResult
+from fmriqc.utils import is_finite_number
 
 METRIC_ALIASES = {
     "apparent_smoothness_fwhm": ("apparent_smoothness_fwhm", "smoothness_fwhm"),
@@ -18,8 +19,8 @@ def _metric_value(metrics: Dict[str, float], key: str) -> Optional[float]:
     """Return a metric value, accepting legacy cache aliases where useful."""
     for candidate in METRIC_ALIASES.get(key, (key,)):
         value = metrics.get(candidate)
-        if value is not None:
-            return value
+        if is_finite_number(value):
+            return float(value)
     return None
 
 
@@ -378,8 +379,9 @@ def detect_outliers_univariate(
         identifiers = []
 
         for res in results:
-            if metric in res.metrics:
-                values.append(res.metrics[metric])
+            value = res.metrics.get(metric)
+            if is_finite_number(value):
+                values.append(float(value))
                 identifiers.append(res.info.get_identifier())
 
         if len(values) < 3:
@@ -431,11 +433,14 @@ def flag_extreme_motion(
     extreme_motion = []
 
     for res in results:
-        fd_median = res.metrics.get('fd_median', 0)
-        fd_percent = res.metrics.get('fd_percent_above', 0)
+        fd_median = res.metrics.get('fd_median')
+        fd_percent = res.metrics.get('fd_percent_above')
 
         # Flag if median FD is very high OR many volumes exceed threshold
-        if fd_median > fd_threshold or fd_percent > fd_percent_threshold:
+        if (
+            (is_finite_number(fd_median) and fd_median > fd_threshold)
+            or (is_finite_number(fd_percent) and fd_percent > fd_percent_threshold)
+        ):
             extreme_motion.append(res.info.get_identifier())
 
     return extreme_motion

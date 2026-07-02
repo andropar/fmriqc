@@ -164,6 +164,20 @@ class TestExclusionCriterion:
 
         assert reason is None
 
+    def test_missing_metric_value_is_not_violation(self):
+        """Missing metrics should not be compared to exclusion thresholds."""
+        criterion = ExclusionCriterion(
+            name='fd_median',
+            metric_key='fd_median',
+            threshold=0.5,
+            comparison='gt',
+            reason_template='FD ({value:.2f}) exceeds {threshold}'
+        )
+
+        reason = criterion.check({'fd_median': None})
+
+        assert reason is None
+
     def test_less_than_criterion_violated(self):
         """Test criterion with 'lt' comparison when violated."""
         criterion = ExclusionCriterion(

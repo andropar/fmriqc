@@ -15,6 +15,7 @@ import numpy as np
 
 from fmriqc.core.constants import STRINGENCY_PROFILES, QualityThresholds
 from fmriqc.io.structures import RunResult
+from fmriqc.utils import is_finite_number
 
 
 class ExclusionStringency(Enum):
@@ -64,6 +65,8 @@ class ExclusionCriterion:
             return None
 
         value = metrics[self.metric_key]
+        if not is_finite_number(value):
+            return None
 
         if self.comparison == 'gt' and value > self.threshold:
             return self.reason_template.format(value=value, threshold=self.threshold)
