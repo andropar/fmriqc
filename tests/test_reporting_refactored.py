@@ -371,6 +371,38 @@ def test_subject_report_contains_motion_and_mask_provenance():
     assert "confounds.tsv" in html
 
 
+def test_subject_report_serializes_run_visual_assets():
+    run = create_minimal_run_result("run-1")
+    run.asset_paths = {
+        "figure": Path("sub-01/ses-1/run-1/figure.png"),
+        "carpetplot": Path("sub-01/ses-1/run-1/carpetplot.png"),
+        "thumbnail": Path("sub-01/ses-1/run-1/thumb.png"),
+        "spatial_map_tsnr": Path("sub-01/ses-1/run-1/map_tsnr.png"),
+    }
+    subject = SubjectResults(
+        subject="01",
+        sessions=[SessionResults(subject="01", session="1", runs=[run])],
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        subject_dir = output_root / "sub-01"
+        asset_dir = output_root / "sub-01" / "ses-1" / "run-1"
+        asset_dir.mkdir(parents=True)
+        for name in ["figure.png", "carpetplot.png", "thumb.png", "map_tsnr.png"]:
+            (asset_dir / name).write_bytes(b"asset")
+
+        html = generate_subject_report(subject=subject, output_dir=subject_dir).read_text()
+
+    assert "run-visual-grid" in html
+    assert "run-figure-image" in html
+    assert "carpet-image" in html
+    assert "flipbook-image" in html
+    assert "ses-1/run-1/figure.png" in html
+    assert "ses-1/run-1/carpetplot.png" in html
+    assert "ses-1/run-1/map_tsnr.png" in html
+
+
 if __name__ == "__main__":
     # Run tests
     print("\n=== Testing Refactored Reporting Module ===\n")

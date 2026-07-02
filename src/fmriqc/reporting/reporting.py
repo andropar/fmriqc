@@ -1,6 +1,7 @@
 """Report generation for fmriqc snapshot QA."""
 
 import json
+import os
 import statistics
 from datetime import datetime
 from pathlib import Path
@@ -121,6 +122,44 @@ def _normalize_metric_aliases(metrics: Dict[str, Any]) -> Dict[str, Any]:
     return normalized
 
 
+def _asset_url_for_report(
+    asset_path: Any,
+    report_dir: Path,
+    assets_base: Optional[Path] = None,
+) -> Optional[str]:
+    """Return a URL path from a report directory to an asset if available."""
+    if not asset_path:
+        return None
+
+    path = Path(asset_path)
+    report_dir = report_dir.resolve()
+    candidates: List[Path] = []
+
+    if path.is_absolute():
+        candidates.append(path)
+    else:
+        candidates.append(report_dir / path)
+        if assets_base is not None:
+            candidates.append(assets_base / path)
+        candidates.extend([report_dir.parent / path, Path.cwd() / path])
+
+    for candidate in candidates:
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            resolved = candidate
+        if resolved.exists():
+            return Path(os.path.relpath(resolved, report_dir)).as_posix()
+
+    if path.is_absolute():
+        return Path(os.path.relpath(path, report_dir)).as_posix()
+
+    parts = path.parts
+    if parts and parts[0] == report_dir.name:
+        return Path(*parts[1:]).as_posix() if len(parts) > 1 else "."
+    return path.as_posix()
+
+
 def prepare_study_data(study: StudyResults, output_dir: Path) -> Dict[str, Any]:
     """Prepare study data for JavaScript."""
     distributions = compute_metric_distributions(study)
@@ -202,41 +241,21 @@ def prepare_subject_data(subject: SubjectResults, output_dir: Path, assets_base:
     for session in subject.sessions:
         for run in session.runs:
             run_id = run.info.get_identifier()
-
-            # Use asset_paths directly - convert to strings
-            thumbnail_path = run.asset_paths.get('thumbnail')
-            figure_path = run.asset_paths.get('figure')
-            carpet_path = run.asset_paths.get('carpetplot')
-
-            # Convert Path objects to strings
-            if thumbnail_path:
-                thumbnail_path = str(thumbnail_path)
-            if figure_path:
-                figure_path = str(figure_path)
-            if carpet_path:
-                carpet_path = str(carpet_path)
-
-            # If we have absolute paths, try to make them relative to assets_base
-            if assets_base:
-                if run.thumbnail_path and Path(run.thumbnail_path).is_absolute():
-                    try:
-                        thumbnail_path = str(Path(run.thumbnail_path).relative_to(assets_base))
-                    except ValueError:
-                        pass
-                if run.figure_path and Path(run.figure_path).is_absolute():
-                    try:
-                        figure_path = str(Path(run.figure_path).relative_to(assets_base))
-                    except ValueError:
-                        pass
-                if run.carpetplot_path and Path(run.carpetplot_path).is_absolute():
-                    try:
-                        carpet_path = str(Path(run.carpetplot_path).relative_to(assets_base))
-                    except ValueError:
-                        pass
-
-            # For subject reports in subdirectory, paths need to go up one level
-            # to reach assets in the main output directory
-            prefix = "../"
+            thumbnail_path = _asset_url_for_report(
+                run.asset_paths.get('thumbnail') or run.thumbnail_path,
+                output_dir,
+                assets_base,
+            )
+            figure_path = _asset_url_for_report(
+                run.asset_paths.get('figure') or run.figure_path,
+                output_dir,
+                assets_base,
+            )
+            carpet_path = _asset_url_for_report(
+                run.asset_paths.get('carpetplot') or run.carpetplot_path,
+                output_dir,
+                assets_base,
+            )
 
             # Collect spatial map paths for flipbook viewer
             spatial_maps = {}
@@ -244,16 +263,9 @@ def prepare_subject_data(subject: SubjectResults, output_dir: Path, assets_base:
                 if key.startswith('spatial_map_'):
                     map_type = key.replace('spatial_map_', '')
                     if path:
-                        path_obj = Path(path) if not isinstance(path, Path) else path
-                        # Make absolute paths relative to assets_base
-                        if assets_base and path_obj.is_absolute():
-                            try:
-                                path = str(path_obj.relative_to(assets_base))
-                            except ValueError:
-                                path = str(path)
-                        else:
-                            path = str(path)
-                        spatial_maps[map_type] = prefix + path
+                        map_path = _asset_url_for_report(path, output_dir, assets_base)
+                        if map_path:
+                            spatial_maps[map_type] = map_path
 
             metrics = _normalize_metric_aliases(run.metrics)
             runs_data.append({
@@ -265,9 +277,9 @@ def prepare_subject_data(subject: SubjectResults, output_dir: Path, assets_base:
                 'metrics': {k: float(v) if isinstance(v, (int, float)) else v
                            for k, v in metrics.items()},
                 'flags': run.flags,
-                'thumbnailPath': prefix + thumbnail_path if thumbnail_path else None,
-                'figurePath': prefix + figure_path if figure_path else None,
-                'carpetPath': prefix + carpet_path if carpet_path else None,
+                'thumbnailPath': thumbnail_path,
+                'figurePath': figure_path,
+                'carpetPath': carpet_path,
                 'spatialMaps': spatial_maps,
                 'provenance': run.provenance.to_dict() if run.provenance else {},
                 'warnings': run.warnings,

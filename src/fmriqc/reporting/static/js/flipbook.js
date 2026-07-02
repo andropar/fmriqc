@@ -27,6 +27,9 @@ function openRunDetail(runId) {
     updateDetailMetrics(run);
     updateDetailProvenance(run);
 
+    // Update overview figure
+    updateRunFigure(run);
+
     // Update flipbook
     initFlipbook(run);
 
@@ -118,6 +121,39 @@ function updateDetailProvenance(run) {
 }
 
 /**
+ * Show or hide an image panel with an empty state.
+ */
+function updateImageWithEmptyState(imageId, emptyId, imagePath, altText) {
+    const img = document.getElementById(imageId);
+    const empty = document.getElementById(emptyId);
+    if (!img) return;
+
+    if (imagePath) {
+        img.src = imagePath;
+        img.alt = altText || '';
+        img.style.display = 'block';
+        if (empty) empty.style.display = 'none';
+    } else {
+        img.removeAttribute('src');
+        img.alt = altText || '';
+        img.style.display = 'none';
+        if (empty) empty.style.display = 'flex';
+    }
+}
+
+/**
+ * Update the run overview figure.
+ */
+function updateRunFigure(run) {
+    updateImageWithEmptyState(
+        'run-figure-image',
+        'run-figure-empty',
+        run.figurePath,
+        `${run.id} overview figure`
+    );
+}
+
+/**
  * Initialize the flipbook viewer for a run
  */
 function initFlipbook(run) {
@@ -137,6 +173,14 @@ function initFlipbook(run) {
 
     // Create buttons
     buttons.innerHTML = '';
+    updateImageWithEmptyState('flipbook-image', 'flipbook-empty', null, 'Brain map');
+
+    if (maps.length === 0) {
+        buttons.style.display = 'none';
+        return;
+    }
+
+    buttons.style.display = 'flex';
     maps.forEach(map => {
         const btn = document.createElement('button');
         btn.className = 'flipbook-btn' + (map.default ? ' active' : '');
@@ -168,11 +212,9 @@ function switchFlipbookMap(run, mapKey) {
     let imagePath = run.spatialMaps?.[mapKey];
 
     if (imagePath) {
-        img.src = imagePath;
-        img.alt = mapKey;
+        updateImageWithEmptyState('flipbook-image', 'flipbook-empty', imagePath, mapKey);
     } else {
-        img.removeAttribute('src');
-        img.alt = `${mapKey} not available`;
+        updateImageWithEmptyState('flipbook-image', 'flipbook-empty', null, `${mapKey} not available`);
     }
 }
 
@@ -180,15 +222,12 @@ function switchFlipbookMap(run, mapKey) {
  * Update carpet plot display
  */
 function updateCarpetPlot(run) {
-    const img = document.getElementById('carpet-image');
-    if (!img) return;
-
-    if (run.carpetPath) {
-        img.src = run.carpetPath;
-        img.style.display = 'block';
-    } else {
-        img.style.display = 'none';
-    }
+    updateImageWithEmptyState(
+        'carpet-image',
+        'carpet-empty',
+        run.carpetPath,
+        `${run.id} carpet plot`
+    );
 }
 
 /**

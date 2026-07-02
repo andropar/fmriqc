@@ -115,7 +115,7 @@
 
 <!-- Detail Modal -->
 <div id="detail-modal" class="modal-overlay">
-    <div class="modal" style="width: min(1100px, 95vw);">
+    <div class="modal" style="width: min(1180px, 95vw);">
         <div class="modal-header">
             <div style="display: flex; align-items: center; gap: 1rem;">
                 <div class="run-nav-buttons" style="display: flex; gap: 4px;">
@@ -130,33 +130,41 @@
             </div>
             <button class="modal-close" onclick="closeModal('detail-modal')">&times;</button>
         </div>
-        <div class="modal-body">
+        <div class="modal-body run-detail-body">
             <!-- Metrics grid -->
             <h3>Metrics</h3>
             <div id="detail-metrics-grid" class="detail-grid">
                 <!-- Populated by JS -->
             </div>
 
+            <div class="run-visual-grid">
+                <section id="carpet-section" class="run-visual-panel">
+                    <h3>Carpet Plot</h3>
+                    <img id="carpet-image" class="run-visual-image carpet-image" src="" alt="Carpet plot">
+                    <div id="carpet-empty" class="visual-empty-state">No carpet plot generated for this run.</div>
+                </section>
+
+                <section id="spatial-map-section" class="run-visual-panel">
+                    <h3>Spatial Maps</h3>
+                    <div id="flipbook-buttons" class="flipbook-controls">
+                        <!-- Populated by JS -->
+                    </div>
+                    <div id="flipbook-container">
+                        <img id="flipbook-image" class="run-visual-image flipbook-image" src="" alt="Brain map">
+                        <div id="flipbook-empty" class="visual-empty-state">No spatial maps generated for this run.</div>
+                    </div>
+                </section>
+
+                <section id="run-figure-section" class="run-visual-panel run-figure-panel">
+                    <h3>Run Overview</h3>
+                    <img id="run-figure-image" class="run-visual-image" src="" alt="Run overview figure">
+                    <div id="run-figure-empty" class="visual-empty-state">No overview figure generated.</div>
+                </section>
+            </div>
+
             <h3>Provenance</h3>
-            <div id="detail-provenance-grid" class="detail-grid">
+            <div id="detail-provenance-grid" class="detail-grid provenance-grid">
                 <!-- Populated by JS -->
-            </div>
-
-            <!-- Carpet plot -->
-            <div class="carpet-section">
-                <h3>Time Series (Carpet Plot)</h3>
-                <img id="carpet-image" class="carpet-image" src="" alt="Carpet plot">
-            </div>
-
-            <!-- Spatial maps (flipbook viewer) -->
-            <div class="flipbook-viewer">
-                <h3>Spatial Maps</h3>
-                <div id="flipbook-buttons" class="flipbook-controls">
-                    <!-- Populated by JS -->
-                </div>
-                <div id="flipbook-container">
-                    <img id="flipbook-image" class="flipbook-image" src="" alt="Brain map">
-                </div>
             </div>
 
             <!-- Notes -->
