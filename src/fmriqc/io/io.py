@@ -157,6 +157,11 @@ class BIDSPathResolver:
                 if candidate.exists():
                     return candidate
 
+            if name.endswith("_desc-preproc_bold.nii.gz"):
+                candidate = parent / name.replace("_desc-preproc_bold.nii.gz", "_desc-brain_mask.nii.gz")
+                if candidate.exists():
+                    return candidate
+
             # Tedana convention
             search_terms = [f"sub-{info.subject}", f"ses-{info.session}", f"run-{info.run}"]
             candidates = [
@@ -599,7 +604,7 @@ def persist_run_assets(result: RunResult, output_root: Path) -> Dict[str, Path]:
 
 
 class QACache:
-    """Manages caching of QA results for incremental processing."""
+    """Manages output-local QA result cache metadata."""
 
     def __init__(
         self,
@@ -627,7 +632,11 @@ class QACache:
             try:
                 bold_path = Path(input_run.bold_path)
                 key = str(bold_path.resolve())
-                motion_path = input_run.confounds_path or input_run.motion_path
+                motion_path = None
+                for candidate in (input_run.confounds_path, input_run.motion_path):
+                    if candidate is not None and Path(candidate).exists():
+                        motion_path = Path(candidate)
+                        break
                 fingerprints[key] = {
                     "snapshot_id": input_run.snapshot.id,
                     "run_key": input_run.run_key.to_string(),
@@ -793,9 +802,7 @@ def load_all_results_from_previous_run(previous_run_dir: Path, output_dir: Path)
         print("Warning: Cache file is empty")
         return []
 
-    # Create a temporary cache instance to use its loading logic
-    temp_cache = QACache(output_dir, reuse_dir=previous_run_dir)
-
+    serializer = RunResultSerializer()
     results = []
     for cache_key, metadata in cache_data.items():
         # Extract run path from metadata
@@ -808,13 +815,17 @@ def load_all_results_from_previous_run(previous_run_dir: Path, output_dir: Path)
         if not run_path_str:
             print(f"Warning: Cache entry {cache_key} missing path; skipping")
             continue
-        run_path = Path(run_path_str)
-
-        # Load the result
-        result = temp_cache.load_run_result(run_path, output_dir)
+        result = serializer.deserialize_from_disk(metadata, previous_run_dir, output_dir)
         if result is None:
-            print(f"Warning: Could not load result for {run_path}; skipping")
+            print(f"Warning: Could not load result for {run_path_str}; skipping")
             continue
+
+        if previous_run_dir.resolve() != output_dir.resolve():
+            try:
+                result.asset_paths = serializer.serialize_to_disk(result, output_dir)
+            except Exception as exc:
+                print(f"Warning: Could not materialize cached assets for {run_path_str}: {exc}")
+                continue
 
         results.append(result)
 

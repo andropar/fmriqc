@@ -24,7 +24,7 @@ From a derivative directory:
 ```bash
 fmriqc assess \
   --derivatives-dir /data/derivatives/fmriprep \
-  --data-source finalinterp \
+  --data-source fmriprep \
   --snapshot-id preproc \
   --snapshot-label "fMRIPrep output" \
   --snapshot-source-type preprocessed \
@@ -36,6 +36,24 @@ Print discovered runs without computing metrics:
 ```bash
 fmriqc assess --manifest snapshot.yaml --dry-run
 ```
+
+## Review the HTML Report
+
+Every assessment writes an `index.html` study report inside a timestamped output
+directory. Start there to scan snapshot-level metrics, run flags, motion
+provenance, and distribution plots:
+
+![Study dashboard](assets/screenshots/fmriqc-study-dashboard.jpg)
+
+Open a subject report from the study page to review runs in context. The subject
+timeline keeps thumbnails, review buttons, and aligned metric traces together:
+
+![Subject report](assets/screenshots/fmriqc-subject-report.jpg)
+
+Click a run label to inspect the run-level metrics, quality flags, provenance,
+warnings, and generated visual assets:
+
+![Run review modal](assets/screenshots/fmriqc-run-review-modal.jpg)
 
 ## Motion Fallback
 
@@ -77,6 +95,13 @@ fmriqc compare \
 
 Runs are paired by canonical run key, not file path. Duplicate, left-only, and
 right-only runs are reported rather than silently guessed.
+
+## Cache and Reuse
+
+Each assessment writes `qa_cache.json` inside its timestamped output directory.
+That cache supports `fmriqc report` and explicit `--reuse-from` loading of a
+completed QA directory. A normal repeat `assess` command creates a fresh
+timestamped directory and does not currently use a shared persistent cache.
 
 ## Rebuild Reports
 

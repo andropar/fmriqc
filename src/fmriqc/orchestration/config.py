@@ -65,18 +65,21 @@ class DataSourcePreset(Enum):
     """
     FINALINTERP = "finalinterp"  # Final interpolated BOLD (default)
     TEDANA = "tedana"            # Tedana optimally combined outputs
+    FMRIPREP = "fmriprep"        # fMRIPrep preprocessed BOLD derivatives
 
 
 # Glob patterns for each preset
 PRESET_PATTERNS = {
     DataSourcePreset.FINALINTERP: "sub-*/ses-*/finalinterp_func/sub-*_bold_final.nii.gz",
     DataSourcePreset.TEDANA: "sub-*/ses-*/tedana/run-*/sub-*_desc-optcom_bold.nii.gz",
+    DataSourcePreset.FMRIPREP: "sub-*/**/func/*_desc-preproc_bold.nii.gz",
 }
 
 # Mask patterns for each preset
 MASK_PATTERNS = {
     DataSourcePreset.FINALINTERP: "sub-*/ses-*/finalinterp_func/sub-*_mask.nii.gz",
     DataSourcePreset.TEDANA: "sub-*/ses-*/tedana/run-*/sub-*_desc-brain_mask.nii.gz",
+    DataSourcePreset.FMRIPREP: "sub-*/**/func/*_desc-brain_mask.nii.gz",
 }
 
 
@@ -309,7 +312,7 @@ class ProcessingConfig:
             raise ValueError("n_jobs must be >= 1")
         if self.target_echo < 1:
             raise ValueError("target_echo must be >= 1")
-        if self.data_source == "glm" "single":
+        if self.data_source == "glmsingle":
             raise ValueError(
                 "GLM beta-map QA is out of scope for the time-series snapshot QA pipeline"
             )
@@ -491,6 +494,10 @@ class QAConfig:
         QAConfig
             Configuration object
         """
+        sections = {'paths', 'snapshot', 'thresholds', 'processing', 'motion', 'visualization', 'analysis', 'reporting'}
+        if not any(section in config_dict for section in sections):
+            return cls._from_flat_dict(dict(config_dict))
+
         paths = PathConfig(**_filter_dataclass_kwargs(PathConfig, config_dict.get('paths', {})))
         snapshot = SnapshotConfig(**_filter_dataclass_kwargs(SnapshotConfig, config_dict.get('snapshot', {})))
         thresholds = ThresholdConfig(**_filter_dataclass_kwargs(ThresholdConfig, config_dict.get('thresholds', {})))
@@ -843,6 +850,7 @@ class QAConfig:
         preset_map = {
             "finalinterp": DataSourcePreset.FINALINTERP,
             "tedana": DataSourcePreset.TEDANA,
+            "fmriprep": DataSourcePreset.FMRIPREP,
         }
         return preset_map.get(self.processing.data_source.lower(), DataSourcePreset.FINALINTERP)
 

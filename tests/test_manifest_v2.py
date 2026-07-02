@@ -73,3 +73,36 @@ def test_manifest_v1_backward_compatibility(tmp_path):
 
     assert manifest.version == 1
     assert input_run.run_key.to_string() == "sub-02_ses-01_task-rest_run-03"
+
+
+def test_hierarchical_manifest_preserves_run_entities_and_motion_format(tmp_path):
+    bold = tmp_path / "custom_bold.nii.gz"
+    bold.touch()
+
+    manifest_path = tmp_path / "legacy_entities.yaml"
+    manifest_path.write_text(yaml.safe_dump({
+        "base_path": ".",
+        "subjects": [{
+            "id": "sub-03",
+            "sessions": [{
+                "id": "ses-02",
+                "runs": [{
+                    "bold": str(bold.relative_to(tmp_path)),
+                    "task": "nback",
+                    "run": "07",
+                    "echo": "2",
+                    "acquisition": "mb",
+                    "part": "mag",
+                    "motion_format": "fsl_par",
+                    "label": "display-label",
+                }],
+            }],
+        }],
+    }))
+
+    input_run = QAManifest.from_file(manifest_path).to_input_runs()[0]
+
+    assert input_run.run_key.to_string() == (
+        "sub-03_ses-02_task-nback_run-07_echo-2_acq-mb_part-mag"
+    )
+    assert input_run.metadata["motion_format"] == "fsl_par"

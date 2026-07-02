@@ -57,6 +57,9 @@ from .metrics import (
 # HELPER FUNCTIONS - Data Loading
 # ============================================================================
 
+MIN_BOLD_VOLUMES = 3
+
+
 def _create_run_directories(output_dir: Path, info: RunInfo) -> Path:
     """Create proper output directory for this run.
 
@@ -76,6 +79,13 @@ def _create_run_directories(output_dir: Path, info: RunInfo) -> Path:
     run_dir = subject_dir / info.get_identifier()
     run_dir.mkdir(parents=True, exist_ok=True)
     return run_dir
+
+
+def _fallback_signal_mask(data: np.ndarray) -> np.ndarray:
+    mean_img = data.mean(axis=-1)
+    positive = mean_img[mean_img > 0]
+    threshold = np.percentile(positive, 5) if positive.size else 0
+    return mean_img > threshold
 
 
 def _load_run_data(
@@ -114,6 +124,20 @@ def _load_run_data(
         print(f"ERROR: Cannot load {run_path}: {e}")
         return None
 
+    if data.ndim != 4:
+        warnings_list.append(f"BOLD image must be 4D; got shape {data.shape}")
+        print(f"ERROR: BOLD image must be 4D for {run_path}; got shape {data.shape}")
+        return None
+    if data.shape[-1] < MIN_BOLD_VOLUMES:
+        warnings_list.append(
+            f"BOLD image has {data.shape[-1]} volumes; at least {MIN_BOLD_VOLUMES} are required"
+        )
+        print(
+            f"ERROR: BOLD image has {data.shape[-1]} volumes for {run_path}; "
+            f"at least {MIN_BOLD_VOLUMES} are required"
+        )
+        return None
+
     # Find and load mask
     # Use reference mask if provided (ensures consistent mask across runs in a session)
     if reference_mask_path is not None:
@@ -128,8 +152,7 @@ def _load_run_data(
 
     if mask_path is None:
         warnings_list.append("Mask file not found - using simple threshold")
-        mean_img = data.mean(axis=-1)
-        mask_data = mean_img > (np.percentile(mean_img[mean_img > 0], 5) if np.any(mean_img > 0) else 0)
+        mask_data = _fallback_signal_mask(data)
         mask_info = MaskInfo(
             path=None,
             source="auto_threshold",
@@ -141,9 +164,15 @@ def _load_run_data(
     else:
         try:
             mask_img = nib.load(str(mask_path))
-            same_shape = data_img.shape[:3] == mask_img.shape[:3]
-            same_affine = bool(np.allclose(data_img.affine, mask_img.affine, atol=1e-3))
-            mask_img, resampled = ensure_mask_aligned(data_img, mask_img)
+            same_shape = data.shape[:3] == mask_img.shape[:3]
+            bold_affine = getattr(data_img, "affine", None)
+            if np.shape(bold_affine) != (4, 4):
+                bold_affine = np.eye(4)
+            same_affine = bool(np.allclose(bold_affine, mask_img.affine, atol=1e-3))
+            if same_shape and same_affine:
+                resampled = False
+            else:
+                mask_img, resampled = ensure_mask_aligned(data_img, mask_img)
             if resampled:
                 warnings_list.append("Mask grid/affine differed from BOLD image and was resampled")
             mask_data = mask_img.get_fdata().astype(bool)
@@ -156,8 +185,7 @@ def _load_run_data(
             )
         except Exception as e:
             warnings_list.append(f"Cannot load mask: {e}")
-            mean_img = data.mean(axis=-1)
-            mask_data = mean_img > np.percentile(mean_img[mean_img > 0], 5)
+            mask_data = _fallback_signal_mask(data)
             mask_info = MaskInfo(
                 path=mask_path,
                 source="auto_threshold",
@@ -353,6 +381,7 @@ def _compute_temporal_metrics(
     mean_img: np.ndarray,
     data: np.ndarray,
     mask_data: np.ndarray,
+    warnings_list: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Compute temporal metrics.
 
@@ -382,20 +411,27 @@ def _compute_temporal_metrics(
     """
     # Global signal analysis
     global_signal = masked.mean(axis=1)
-    tr = float(data_img.header.get_zooms()[3]) if data_img.ndim == 4 else 1.0
+    try:
+        zooms = data_img.header.get_zooms()
+        tr = float(zooms[3]) if len(zooms) > 3 else 1.0
+    except Exception:
+        zooms = (1.0, 1.0, 1.0, 1.0)
+        tr = 1.0
+    if not np.isfinite(tr) or tr <= 0:
+        if warnings_list is not None:
+            warnings_list.append("Invalid or missing TR in BOLD header; using TR=1.0s for PSD diagnostics")
+        tr = 1.0
 
     # Smoothness
     residuals_4d = data - mean_img[..., None]
-    apparent_smoothness_fwhm = compute_smoothness(residuals_4d, data_img.header.get_zooms()[:3])
+    voxel_sizes = tuple(zooms[:3]) if len(zooms) >= 3 else (1.0, 1.0, 1.0)
+    apparent_smoothness_fwhm = compute_smoothness(residuals_4d, voxel_sizes)
 
     # GCOR - Global Correlation (Saad et al., 2013)
     gcor = compute_gcor(masked)
 
     # AR(1)
-    detrended = masked - np.polyval(
-        np.polyfit(np.arange(masked.shape[0]), masked, 2),
-        np.arange(masked.shape[0])[:, None]
-    )
+    detrended = detrend_poly(masked)
     ar1_vals = compute_ar1(detrended)
     ar1_brain = np.zeros_like(mean_img)
     ar1_brain[mask_data] = ar1_vals
@@ -547,7 +583,13 @@ def _create_visualizations(
             # Pass DVARS (use standardized dvars_std for display)
             dvars_for_carpet = series.get("dvars_std")
             carpetplot_path = create_carpetplot(
-                data, mask_data, fd, carpetplot_filename, info, dvars=dvars_for_carpet
+                data,
+                mask_data,
+                fd,
+                carpetplot_filename,
+                info,
+                dvars=dvars_for_carpet,
+                thresholds=thresholds,
             )
         except Exception as e:
             warnings_list.append(f"Carpetplot failed: {e}")
@@ -822,7 +864,7 @@ def process_single_run(
         maps = spatial_results["maps"]
 
         # Compute temporal metrics
-        temporal_results = _compute_temporal_metrics(masked, data_img, mean_img, data, mask_data)
+        temporal_results = _compute_temporal_metrics(masked, data_img, mean_img, data, mask_data, warnings_list)
         maps["ar1"] = temporal_results["ar1_brain"]  # Add AR(1) map
 
         # Load motion parameters

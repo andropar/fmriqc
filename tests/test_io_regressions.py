@@ -14,6 +14,7 @@ from fmriqc.io.io import (
     RunResultSerializer,
     ensure_mask_aligned,
     images_same_grid,
+    load_all_results_from_previous_run,
 )
 from fmriqc.io.structures import InputRun, RunInfo, RunKey, RunResult, SnapshotInfo
 from fmriqc.reporting.reporting import get_templates_dir
@@ -33,7 +34,7 @@ def _minimal_result() -> RunResult:
         maps={},
         mask=np.ones((2, 2, 2), dtype=bool),
         affine=np.eye(4),
-        header=None,
+        header=nib.Nifti1Header(),
         figure_path=Path("/tmp/figure.png"),
         carpetplot_path=None,
         thumbnail_path=None,
@@ -112,6 +113,28 @@ def test_cache_key_changes_when_mask_mtime_changes(tmp_path):
     key_b = QACache(tmp_path / "cache-b", config_hash="same", input_runs=[input_run]).get_cache_key(bold)
 
     assert key_a != key_b
+
+
+def test_load_all_results_from_previous_run_uses_stored_metadata_not_recomputed_key(tmp_path):
+    previous = tmp_path / "previous"
+    new_output = tmp_path / "new"
+    result = _minimal_result()
+    bold = tmp_path / "sub-01_ses-01_task-rest_run-01_bold.nii.gz"
+    bold.write_text("bold")
+    result.info.path = bold
+    RunResultSerializer().serialize_to_disk(result, previous)
+    metadata = result.to_cache()
+
+    (previous / "qa_cache.json").write_text(
+        json.dumps({"key-from-original-run": metadata}),
+        encoding="utf-8",
+    )
+
+    loaded = load_all_results_from_previous_run(previous, new_output)
+
+    assert len(loaded) == 1
+    assert loaded[0].info.path == bold
+    assert (new_output / "sub-01" / "ses-01").exists()
 
 
 def test_active_reporting_templates_are_packaged():

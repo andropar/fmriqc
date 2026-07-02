@@ -17,8 +17,8 @@ Also supported:
 - Generated MCFLIRT `.par` files when motion is missing and generation is
   enabled.
 
-When both `confounds` and `motion` are provided in a manifest, confounds are
-preferred.
+When both `confounds` and `motion` are provided in a manifest, the first
+existing file is used, preferring confounds over `.par` files.
 
 ## Generating Missing Motion
 
@@ -43,6 +43,10 @@ fmriqc assess \
   --generate-motion \
   --fsl-container /path/to/fsl_container.sif
 ```
+
+For Singularity/Apptainer, `--container-download ask|never|auto` controls what
+happens when the default FSL container is missing. `never` fails without a
+prompt, which is safer for batch jobs; `auto` downloads without prompting.
 
 ## Interpretation
 

@@ -2,7 +2,8 @@
 
 import numpy as np
 
-from fmriqc.core.motion import load_fd_series
+from fmriqc.core.motion import choose_motion_path, load_fd_series
+from fmriqc.io.structures import InputRun, RunKey, SnapshotInfo
 
 
 def test_load_fd_from_fmriprep_confounds(tmp_path):
@@ -57,3 +58,18 @@ def test_confounds_without_motion_columns_warns(tmp_path):
     assert fd.size == 0
     assert info.fd_source == "none"
     assert info.warnings
+
+
+def test_choose_motion_path_uses_existing_fallback_when_confounds_missing(tmp_path):
+    missing_confounds = tmp_path / "missing_confounds.tsv"
+    motion = tmp_path / "motion.par"
+    motion.write_text("0 0 0 0 0 0\n")
+    input_run = InputRun(
+        snapshot=SnapshotInfo(id="snap"),
+        run_key=RunKey(subject="01", session="01", run="01"),
+        bold_path=tmp_path / "bold.nii.gz",
+        confounds_path=missing_confounds,
+        motion_path=motion,
+    )
+
+    assert choose_motion_path(input_run) == motion

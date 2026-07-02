@@ -488,7 +488,8 @@ def _plot_global_signal_panel(ax: plt.Axes, gs_signal: np.ndarray, style_dict: D
 
     # Add detrended version
     t = np.arange(len(gs_signal))
-    gs_trend = np.polyval(np.polyfit(t, gs_signal, 2), t)
+    degree = min(2, max(len(gs_signal) - 1, 0))
+    gs_trend = np.polyval(np.polyfit(t, gs_signal, degree), t) if degree >= 1 else np.full_like(gs_signal, np.mean(gs_signal))
     gs_detrended = gs_signal - gs_trend + np.mean(gs_signal)
     ax.plot(gs_detrended, color=gs_detrend_color, linewidth=1, alpha=0.8, label="Detrended")
 
@@ -683,7 +684,8 @@ def _plot_fd_trace(
     ax: plt.Axes,
     fd: np.ndarray,
     info: RunInfo,
-    style_dict: Dict[str, Any]
+    style_dict: Dict[str, Any],
+    fd_threshold: float,
 ) -> None:
     """
     Plot FD time series trace.
@@ -704,10 +706,10 @@ def _plot_fd_trace(
 
     ax.fill_between(range(len(fd)), fd, alpha=0.3, color=fd_color)
     ax.plot(fd, color=fd_color, linewidth=1, label="FD")
-    ax.axhline(0.2, **threshold_style, label="Threshold (0.2mm)")
+    ax.axhline(fd_threshold, **threshold_style, label=f"Threshold ({fd_threshold:g}mm)")
 
     # Mark high-motion volumes
-    high_motion = fd > 0.5
+    high_motion = fd > fd_threshold
     if np.any(high_motion):
         ax.scatter(
             np.where(high_motion)[0], fd[high_motion],
@@ -788,7 +790,8 @@ def _plot_carpet_main(
     ax: plt.Axes,
     carpet_data: np.ndarray,
     fd: Optional[np.ndarray],
-    style_dict: Dict[str, Any]
+    style_dict: Dict[str, Any],
+    fd_threshold: float,
 ) -> None:
     """
     Plot main carpet visualization.
@@ -823,7 +826,7 @@ def _plot_carpet_main(
 
     # Add vertical lines for high-motion volumes
     if fd is not None:
-        for vol in np.where(fd > 0.5)[0]:
+        for vol in np.where(fd > fd_threshold)[0]:
             ax.axvline(vol, color="red", alpha=0.3, linewidth=0.5)
 
     ax.set_ylabel("Voxels (sorted by z)", fontsize=10)
@@ -863,7 +866,8 @@ def _plot_global_signal_trace(
 
     # Detrend the signal
     t = np.arange(n_time)
-    gs_trend = np.polyval(np.polyfit(t, global_signal, 2), t)
+    degree = min(2, max(n_time - 1, 0))
+    gs_trend = np.polyval(np.polyfit(t, global_signal, degree), t) if degree >= 1 else np.full_like(global_signal, np.mean(global_signal))
     gs_detrended = global_signal - gs_trend
 
     ax.plot(global_signal, color=gs_color, linewidth=1, alpha=0.5, label="Raw")
@@ -879,7 +883,8 @@ def _add_carpet_summary_stats(
     n_voxels: int,
     n_time: int,
     fd: Optional[np.ndarray],
-    outlier_frac: np.ndarray
+    outlier_frac: np.ndarray,
+    fd_threshold: float,
 ) -> None:
     """
     Add summary statistics text to carpet plot.
@@ -900,7 +905,7 @@ def _add_carpet_summary_stats(
     stats_text = f"Voxels: {n_voxels:,} | Volumes: {n_time}"
     if fd is not None:
         stats_text += f" | Mean FD: {np.mean(fd):.3f}mm"
-        stats_text += f" | High motion: {np.sum(fd > 0.5)}"
+        stats_text += f" | High motion: {np.sum(fd > fd_threshold)}"
     stats_text += f" | Mean outlier: {np.mean(outlier_frac)*100:.1f}%"
 
     fig.text(0.5, 0.01, stats_text, ha="center", fontsize=9, style="italic", color="gray")
@@ -1039,6 +1044,7 @@ def create_carpetplot(
     output_path: Path,
     info: RunInfo,
     dvars: Optional[np.ndarray] = None,
+    thresholds: Optional[Dict[str, float]] = None,
 ) -> Path:
     """
     Create enhanced carpetplot visualization (CIR-203).
@@ -1065,6 +1071,8 @@ def create_carpetplot(
         Run information for title
     dvars : np.ndarray or None
         DVARS series (if available)
+    thresholds : dict, optional
+        Resolved threshold values for visual annotations.
 
     Returns
     -------
@@ -1077,6 +1085,7 @@ def create_carpetplot(
     # Compute derived metrics
     outlier_frac = np.mean(np.abs(masked_z) > 3.0, axis=1)
     global_signal = np.mean(masked_raw, axis=1)
+    fd_threshold = (thresholds or {}).get("fd", 0.3)
 
     # Create figure layout
     fig, gs, n_panels = _create_carpet_figure_layout(fd is not None, dvars is not None)
@@ -1096,7 +1105,7 @@ def create_carpetplot(
     # Panel 1: FD (if available)
     if fd is not None:
         ax_fd = fig.add_subplot(gs[panel_idx])
-        _plot_fd_trace(ax_fd, fd, info, style_dict)
+        _plot_fd_trace(ax_fd, fd, info, style_dict, fd_threshold)
         panel_idx += 1
 
     # Panel 2: DVARS / Outlier fraction
@@ -1106,7 +1115,7 @@ def create_carpetplot(
 
     # Panel 3: Carpet plot
     ax_carpet = fig.add_subplot(gs[panel_idx])
-    _plot_carpet_main(ax_carpet, masked_z, fd, style_dict)
+    _plot_carpet_main(ax_carpet, masked_z, fd, style_dict, fd_threshold)
     panel_idx += 1
 
     # Panel 4: Global signal
@@ -1114,7 +1123,7 @@ def create_carpetplot(
     _plot_global_signal_trace(ax_gs, global_signal, n_time, style_dict)
 
     # Add summary statistics
-    _add_carpet_summary_stats(fig, n_voxels, n_time, fd, outlier_frac)
+    _add_carpet_summary_stats(fig, n_voxels, n_time, fd, outlier_frac, fd_threshold)
 
     fig.savefig(output_path, dpi=120, bbox_inches="tight", facecolor="white")
     plt.close(fig)

@@ -43,7 +43,7 @@ def check_container_runtime() -> str:
     Prefers Docker on macOS (Rosetta 2 support), falls back to Singularity for HPC.
 
     Returns:
-        str: "docker" or "singularity"
+        str: "docker", "singularity", or "apptainer"
 
     Raises:
         ContainerNotFoundError: If neither runtime is found.
@@ -62,13 +62,16 @@ def check_container_runtime() -> str:
         except (subprocess.TimeoutExpired, Exception):
             pass
 
-    # Fall back to Singularity
+    # Fall back to Singularity/Apptainer
     if shutil.which("singularity"):
         return "singularity"
+    if shutil.which("apptainer"):
+        return "apptainer"
 
     # Neither found
     raise ContainerNotFoundError(
-        "Neither Docker nor Singularity found for --generate-motion.\n"
+        "Neither Docker nor Singularity found for --generate-motion; "
+        "Apptainer was also not found.\n"
         "\n"
         "Docker (recommended for macOS):\n"
         "  Install Docker Desktop: https://www.docker.com/products/docker-desktop/\n"
@@ -81,12 +84,13 @@ def check_container_runtime() -> str:
     )
 
 
-def get_container_path(custom_path: Optional[Path] = None) -> Path:
+def get_container_path(custom_path: Optional[Path] = None, download_policy: str = "ask") -> Path:
     """Get path to FSL container, downloading if necessary.
 
     Args:
         custom_path: Optional custom path to FSL container. If provided,
             skips auto-download and uses this path.
+        download_policy: One of "ask", "never", or "auto".
 
     Returns:
         Path to FSL container.
@@ -111,6 +115,12 @@ def get_container_path(custom_path: Optional[Path] = None) -> Path:
         print(f"Using cached FSL container: {container_path}")
         return container_path
 
+    if download_policy == "never":
+        raise MotionGenerationError(
+            "FSL container is missing and --container-download=never was set. "
+            "Download the container manually or provide --fsl-container."
+        )
+
     # Need to download - ask for permission
     print("\n" + "=" * 70)
     print("FSL Container Download Required")
@@ -123,13 +133,22 @@ def get_container_path(custom_path: Optional[Path] = None) -> Path:
     print("\nThis is a one-time download. Future runs will use the cached container.")
     print("=" * 70)
 
-    response = input("\nDownload now? [y/N]: ").strip().lower()
+    if download_policy == "auto":
+        response = "yes"
+    else:
+        try:
+            response = input("\nDownload now? [y/N]: ").strip().lower()
+        except EOFError as exc:
+            raise MotionGenerationError(
+                "FSL container download requires confirmation, but stdin is not interactive. "
+                "Use --container-download=auto, --container-download=never, or --fsl-container."
+            ) from exc
 
-    if response not in ['y', 'yes']:
-        raise MotionGenerationError(
-            "FSL container download declined. Cannot proceed with --generate-motion.\n"
-            "To skip this prompt, download the container manually and use --fsl-container."
-        )
+        if response not in ['y', 'yes']:
+            raise MotionGenerationError(
+                "FSL container download declined. Cannot proceed with --generate-motion.\n"
+                "To skip this prompt, download the container manually and use --fsl-container."
+            )
 
     # Download container
     print("\nDownloading FSL container...")
@@ -217,12 +236,12 @@ def run_mcflirt(
         ]
         timeout = 900  # 15 minutes (Rosetta 2 is fast but fMRI data can be large)
 
-    elif runtime == "singularity":
-        # Singularity command with bind mounts
+    elif runtime in {"singularity", "apptainer"}:
+        # Singularity/Apptainer command with bind mounts
         if container_path is None:
-            raise MotionGenerationError("container_path required for Singularity runtime")
+            raise MotionGenerationError(f"container_path required for {runtime} runtime")
 
-        cmd = ["singularity", "exec"]
+        cmd = [runtime, "exec"]
 
         # On ARM64 systems, add --unsquash to bypass architecture check
         # QEMU user-mode emulation will handle x86_64 binaries (much slower!)
@@ -308,8 +327,8 @@ def generate_motion_parameters(
     print(f"Container runtime: {runtime}")
     if runtime == "docker":
         print(f"Docker image: {FSL_DOCKER_IMAGE}")
-    elif runtime == "singularity" and container_path:
-        print(f"Singularity container: {container_path}")
+    elif runtime in {"singularity", "apptainer"} and container_path:
+        print(f"{runtime.title()} container: {container_path}")
     print(f"{'=' * 70}\n")
 
     results = {}

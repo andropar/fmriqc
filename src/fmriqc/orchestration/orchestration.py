@@ -208,8 +208,8 @@ def setup_output_and_cache(
 ) -> Tuple[Path, Optional[QACache], List[InputRun], Dict[Path, RunResult], int]:
     """Setup output directory and cache system.
 
-    Creates output directory structure, initializes cache, and identifies
-    which runs need processing vs can use cached results.
+    Creates output directory structure, initializes output-local cache metadata,
+    and identifies which runs need processing vs can use cached results.
 
     Parameters
     ----------
@@ -335,11 +335,14 @@ def process_runs(
                 # Check which container runtime is available
                 runtime = check_container_runtime()
 
-                # Only download FSL container for Singularity runtime
+                # Only download FSL container for Singularity/Apptainer runtime
                 # Docker will pull the image automatically
                 container_path = None
-                if runtime == "singularity":
-                    container_path = get_container_path(config.fsl_container_path)
+                if runtime in {"singularity", "apptainer"}:
+                    container_path = get_container_path(
+                        config.fsl_container_path,
+                        download_policy=config.motion.download_policy,
+                    )
 
                 # Identify runs needing motion parameters
                 runs_needing_motion = []

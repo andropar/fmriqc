@@ -7,6 +7,10 @@ output, tedana output, denoised data, smoothed data, or a custom preprocessing
 result. The main workflow assesses one snapshot. An optional comparison command
 can then compare two already-assessed snapshots of the same dataset.
 
+The project is intended as a lightweight derivative-snapshot QA, comparison, and
+manual review companion, not as a full replacement for MRIQC's broader BIDS-App
+metric catalog.
+
 > Disclaimer: Large portions of this codebase were AI-generated and have not
 > been fully manually reviewed. Verify correctness before using it for published
 > research or production workflows.
@@ -21,11 +25,22 @@ can then compare two already-assessed snapshots of the same dataset.
 - Provenance-aware HTML reports for run review
 - Exported metrics, flags, provenance, and candidate censor vectors
 - Optional comparison of two existing snapshot QA outputs
-- Incremental caching keyed by inputs and resolved configuration
+- Output-local cache metadata for report regeneration and explicit reuse loading
 
 `fmriqc` does not currently provide beta-map QA, task event validation,
 distortion-correction quality assessment, cardiac/respiratory noise inference
 from BOLD alone, final automatic exclusion decisions, or non-HTML reports.
+
+## Report Preview
+
+The main output is a self-contained HTML review report. The study view gives a
+snapshot-level summary, run table, and metric distributions:
+
+![fmriqc study dashboard](docs/assets/screenshots/fmriqc-study-dashboard.jpg)
+
+Subject reports add the review timeline and per-run drill-downs:
+
+![fmriqc subject report](docs/assets/screenshots/fmriqc-subject-report.jpg)
 
 ## Installation
 
@@ -47,6 +62,18 @@ Assess one snapshot from a manifest:
 fmriqc assess --manifest snapshot.yaml -o QA_preproc --n-jobs 4
 ```
 
+The included `ds001419_simple.yaml` smoke manifest can be used with a local
+sample dataset when developing docs or checking the report flow:
+
+```bash
+fmriqc assess \
+  --manifest ds001419_simple.yaml \
+  --snapshot-id docs-smoke \
+  --snapshot-label "ds001419 docs smoke" \
+  --snapshot-source-type raw \
+  -o QA_docs_screenshots
+```
+
 Backward-compatible assess mode also works:
 
 ```bash
@@ -58,7 +85,7 @@ Assess a BIDS-derivative tree:
 ```bash
 fmriqc assess \
   --derivatives-dir /data/derivatives/fmriprep \
-  --data-source finalinterp \
+  --data-source fmriprep \
   --snapshot-id fmriprep \
   --snapshot-source-type preprocessed \
   -o QA_preproc
@@ -109,6 +136,7 @@ QA_preproc/20260505_151200_snapshot-preproc/
   snapshot.json
   qa_config.yaml
   qa_config_resolved.yaml
+  qa_cache.json
   study_summary.json
   metrics/run_metrics.tsv
   metrics/run_flags.tsv
@@ -120,6 +148,10 @@ QA_preproc/20260505_151200_snapshot-preproc/
     series.json
     figures...
 ```
+
+Each `assess` run creates a new timestamped output directory. The cache stored in
+that directory is used for report regeneration and explicit reuse/report-loading
+workflows; normal repeat runs do not currently share a persistent global cache.
 
 ## Documentation
 

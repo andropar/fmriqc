@@ -10,6 +10,7 @@ This test suite covers the main processing orchestration including:
 
 from unittest.mock import Mock, patch
 
+import nibabel as nib
 import numpy as np
 
 from fmriqc.core.processing import (
@@ -462,5 +463,13 @@ class TestProcessSingleRun:
 
         # Should return None for empty mask
         result = process_single_run(run_path, config, output_dir)
+
+        assert result is None
+
+    def test_rejects_3d_bold_with_clear_failure(self, tmp_path):
+        run_path = tmp_path / "sub-01_ses-01_task-rest_run-01_bold.nii.gz"
+        nib.save(nib.Nifti1Image(np.ones((4, 4, 4)), np.eye(4)), run_path)
+
+        result = process_single_run(run_path, QAConfig(), tmp_path / "output")
 
         assert result is None

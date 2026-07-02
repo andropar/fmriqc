@@ -1,5 +1,6 @@
 """HTML reporting for snapshot comparisons."""
 
+from html import escape
 from pathlib import Path
 from typing import List
 
@@ -20,13 +21,13 @@ def generate_comparison_report(
         d = comparison.metric_deltas
         rows.append(
             "<tr>"
-            f"<td>{comparison.run_key.to_string()}</td>"
-            f"<td>{comparison.status}</td>"
+            f"<td>{escape(comparison.run_key.to_string())}</td>"
+            f"<td>{escape(comparison.status)}</td>"
             f"<td>{_fmt_delta(d.get('tsnr_median'))}</td>"
             f"<td>{_fmt_delta(d.get('fd_median'))}</td>"
             f"<td>{_fmt_delta(d.get('dvars_std_median'))}</td>"
             f"<td>{_fmt_delta(d.get('coverage_signal_fraction'))}</td>"
-            f"<td>{'; '.join(comparison.warnings)}</td>"
+            f"<td>{escape('; '.join(comparison.warnings))}</td>"
             "</tr>"
         )
     html = f"""<!doctype html>
@@ -44,7 +45,7 @@ def generate_comparison_report(
 </head>
 <body>
   <h1>Snapshot Comparison</h1>
-  <p class="meta">{left_snapshot.id} vs {right_snapshot.id}</p>
+  <p class="meta">{escape(left_snapshot.id)} vs {escape(right_snapshot.id)}</p>
   <p>Paired runs: {len(pairing.paired)} · Left only: {len(pairing.left_only)} · Right only: {len(pairing.right_only)} · Duplicate warnings: {len(pairing.warnings)}</p>
   <table>
     <thead><tr><th>Run</th><th>Status</th><th>Delta tSNR</th><th>Delta FD</th><th>Delta DVARS</th><th>Delta Coverage</th><th>Warnings</th></tr></thead>

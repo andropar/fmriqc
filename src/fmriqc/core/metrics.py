@@ -20,9 +20,15 @@ def robust_z(x: np.ndarray) -> np.ndarray:
 
 def detrend_poly(series: np.ndarray, degree: int = 2) -> np.ndarray:
     """Polynomial detrending."""
+    if series.shape[0] == 0:
+        return series
+    degree = min(degree, max(series.shape[0] - 1, 0))
+    if degree < 1:
+        return series - np.mean(series, axis=0)
     t = np.arange(series.shape[0], dtype=np.float32)
     coefs = np.polyfit(t, series, degree)
-    trend = np.polyval(coefs, t)
+    eval_points = t[:, None] if series.ndim > 1 else t
+    trend = np.polyval(coefs, eval_points)
     return series - trend
 
 

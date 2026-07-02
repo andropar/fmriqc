@@ -10,7 +10,7 @@ Input:
 - `--derivatives-dir PATH`: directory to search in glob mode.
 - `--bids-root PATH`: optional BIDS root.
 - `--config FILE`: load a saved YAML config.
-- `--data-source finalinterp|tedana|manifest`: discovery preset.
+- `--data-source finalinterp|tedana|fmriprep|manifest`: discovery preset.
 - `--glob-pattern PATTERN`: custom discovery pattern.
 
 Snapshot identity:
@@ -28,7 +28,7 @@ Processing:
 
 - `--n-jobs N`: number of worker processes.
 - `--target-echo N`: target echo for legacy motion lookup.
-- `--no-cache`: disable cache reuse.
+- `--no-cache`: disable output-local cache metadata.
 - `--force-reprocess`: ignore existing cache entries.
 - `--dry-run`: list discovered runs.
 
@@ -58,7 +58,7 @@ Review support:
 
 Reuse:
 
-- `--reuse-from PATH`: reuse cached results from a previous output directory.
+- `--reuse-from PATH`: load all cached results from a previous output directory.
 
 ## Compare CLI
 
@@ -94,7 +94,7 @@ processing:
   n_jobs: 4
   use_cache: true
   force_reprocess: false
-  data_source: finalinterp
+  data_source: fmriprep
   glob_pattern: ""
 
 motion:

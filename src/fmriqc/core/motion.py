@@ -106,7 +106,8 @@ def has_usable_motion(input_run: InputRun) -> bool:
 
 
 def choose_motion_path(input_run: InputRun) -> Path | None:
-    """Prefer confounds over motion when both are provided."""
-    if input_run.confounds_path is not None:
-        return input_run.confounds_path
-    return input_run.motion_path
+    """Choose the first existing supported motion input, preferring confounds."""
+    for path in (input_run.confounds_path, input_run.motion_path):
+        if path is not None and Path(path).exists():
+            return Path(path)
+    return None

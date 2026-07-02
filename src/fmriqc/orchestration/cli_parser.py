@@ -6,17 +6,9 @@ import argparse
 import sys
 from pathlib import Path
 
-from fmriqc.core.constants import QualityThresholds, StatisticalConstants
 from fmriqc.orchestration.config import (
-    AnalysisConfig,
-    MotionConfig,
-    PathConfig,
-    ProcessingConfig,
     QAConfig,
-    ReportingConfig,
     SnapshotConfig,
-    ThresholdConfig,
-    VisualizationConfig,
 )
 
 
@@ -30,30 +22,30 @@ def _add_assess_args(parser: argparse.ArgumentParser) -> None:
     source_group = parser.add_argument_group("Data Source")
     source_group.add_argument(
         "--data-source",
-        choices=["finalinterp", "tedana", "manifest"],
+        choices=["finalinterp", "tedana", "fmriprep", "manifest"],
         default=None,
     )
-    source_group.add_argument("--glob-pattern", default="")
+    source_group.add_argument("--glob-pattern", default=None)
 
     snapshot_group = parser.add_argument_group("Snapshot")
-    snapshot_group.add_argument("--snapshot-id", default="snapshot")
-    snapshot_group.add_argument("--snapshot-label", default="")
+    snapshot_group.add_argument("--snapshot-id", default=None)
+    snapshot_group.add_argument("--snapshot-label", default=None)
     snapshot_group.add_argument(
         "--snapshot-source-type",
-        default="custom",
+        default=None,
         choices=["raw", "preprocessed", "denoised", "smoothed", "custom"],
     )
 
     output_group = parser.add_argument_group("Output")
-    output_group.add_argument("-o", "--output-dir-name", default="QA")
-    output_group.add_argument("--no-carpetplots", action="store_true")
+    output_group.add_argument("-o", "--output-dir-name", default=None)
+    output_group.add_argument("--no-carpetplots", action="store_true", default=None)
 
     processing_group = parser.add_argument_group("Processing")
-    processing_group.add_argument("--n-jobs", type=int, default=1)
-    processing_group.add_argument("--target-echo", type=int, default=2)
-    processing_group.add_argument("--no-cache", action="store_true")
-    processing_group.add_argument("--force-reprocess", action="store_true")
-    processing_group.add_argument("--generate-motion", action="store_true")
+    processing_group.add_argument("--n-jobs", type=int, default=None)
+    processing_group.add_argument("--target-echo", type=int, default=None)
+    processing_group.add_argument("--no-cache", action="store_true", default=None)
+    processing_group.add_argument("--force-reprocess", action="store_true", default=None)
+    processing_group.add_argument("--generate-motion", action="store_true", default=None)
     processing_group.add_argument(
         "--motion-strategy",
         choices=["prefer_provided", "generate_if_missing", "none"],
@@ -63,46 +55,47 @@ def _add_assess_args(parser: argparse.ArgumentParser) -> None:
     processing_group.add_argument(
         "--container-download",
         choices=["ask", "never", "auto"],
-        default="ask",
+        default=None,
     )
 
     threshold_group = parser.add_argument_group("Quality Thresholds")
     threshold_group.add_argument(
         "--threshold-profile",
         choices=["lenient", "default", "strict"],
-        default="default",
+        default=None,
     )
     threshold_group.add_argument(
         "--dvars-z-threshold",
         type=float,
-        default=StatisticalConstants.Z_SCORE_STRICT,
+        default=None,
     )
     threshold_group.add_argument(
         "--fd-threshold",
         type=float,
-        default=QualityThresholds.FD_THRESHOLD_STRICT,
+        default=None,
     )
-    threshold_group.add_argument("--fd-median-threshold", type=float, default=0.2)
-    threshold_group.add_argument("--outlier-threshold", type=float, default=0.02)
-    threshold_group.add_argument("--outlier-metric-threshold", type=float, default=3.0)
+    threshold_group.add_argument("--fd-median-threshold", type=float, default=None)
+    threshold_group.add_argument("--outlier-threshold", type=float, default=None)
+    threshold_group.add_argument("--outlier-metric-threshold", type=float, default=None)
 
     analysis_group = parser.add_argument_group("Review Support")
     analysis_group.add_argument(
         "--generate-review-recommendations",
         action="store_true",
+        default=None,
         help="Generate candidate run flags and candidate censor vectors",
     )
     analysis_group.add_argument(
         "--exclusion-stringency",
-        default="moderate",
+        default=None,
         choices=["liberal", "moderate", "conservative"],
     )
-    analysis_group.add_argument("--disable-outliers", action="store_true")
+    analysis_group.add_argument("--disable-outliers", action="store_true", default=None)
 
     reuse_group = parser.add_argument_group("Reuse")
     reuse_group.add_argument("--reuse-from", type=Path)
 
-    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--dry-run", action="store_true", default=None)
 
 
 def create_argument_parser() -> argparse.ArgumentParser:
@@ -134,96 +127,119 @@ def create_argument_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _snapshot_config_from_manifest(snapshot) -> SnapshotConfig:
+    return SnapshotConfig(
+        id=snapshot.id,
+        label=snapshot.label,
+        source_type=snapshot.source_type,
+        description=snapshot.description,
+        pipeline_name=snapshot.pipeline_name,
+        pipeline_version=snapshot.pipeline_version,
+    )
+
+
+def _manifest_config_has_snapshot(manifest_config: dict | None) -> bool:
+    return bool(manifest_config and isinstance(manifest_config.get("snapshot"), dict))
+
+
 def _build_assess_config(parsed_args: argparse.Namespace) -> QAConfig:
     if parsed_args.manifest:
         parsed_args.data_source = "manifest"
 
     manifest_config = None
+    manifest_config_data = None
     manifest = None
     if parsed_args.manifest and Path(parsed_args.manifest).exists():
         from fmriqc.io.manifest import QAManifest
 
         manifest = QAManifest.from_file(Path(parsed_args.manifest))
         if manifest.qa_config:
-            manifest_config = QAConfig.from_dict(manifest.qa_config)
+            manifest_config_data = dict(manifest.qa_config)
+            manifest_config = QAConfig.from_dict(manifest_config_data)
 
     if parsed_args.config and Path(parsed_args.config).exists():
         config = QAConfig.from_yaml(Path(parsed_args.config))
+        config.config_file = parsed_args.config
+        if manifest and manifest.snapshot and config.snapshot == SnapshotConfig():
+            config.snapshot = _snapshot_config_from_manifest(manifest.snapshot)
     elif manifest_config is not None:
         config = manifest_config
+        if manifest and manifest.snapshot and not _manifest_config_has_snapshot(manifest_config_data):
+            config.snapshot = _snapshot_config_from_manifest(manifest.snapshot)
     else:
-        strategy = parsed_args.motion_strategy
-        if parsed_args.generate_motion:
-            strategy = "generate_if_missing"
-        config = QAConfig(
-            paths=PathConfig(
-                derivatives_dir=parsed_args.derivatives_dir,
-                bids_root=parsed_args.bids_root,
-                manifest_path=parsed_args.manifest,
-                output_dir_name=parsed_args.output_dir_name,
-                reuse_run_dir=parsed_args.reuse_from,
-            ),
-            snapshot=SnapshotConfig(
-                id=parsed_args.snapshot_id,
-                label=parsed_args.snapshot_label,
-                source_type=parsed_args.snapshot_source_type,
-            ),
-            thresholds=ThresholdConfig(
-                profile=parsed_args.threshold_profile,
-                dvars_z_threshold=parsed_args.dvars_z_threshold,
-                fd_threshold=parsed_args.fd_threshold,
-                fd_median_threshold=parsed_args.fd_median_threshold,
-                outlier_threshold=parsed_args.outlier_threshold,
-                outlier_metric_threshold=parsed_args.outlier_metric_threshold,
-            ),
-            processing=ProcessingConfig(
-                n_jobs=parsed_args.n_jobs,
-                target_echo=parsed_args.target_echo,
-                use_cache=not parsed_args.no_cache,
-                force_reprocess=parsed_args.force_reprocess,
-                dry_run=parsed_args.dry_run,
-                data_source=parsed_args.data_source if parsed_args.data_source is not None else "finalinterp",
-                glob_pattern=parsed_args.glob_pattern,
-            ),
-            motion=MotionConfig(
-                strategy=strategy or "prefer_provided",
-                fsl_container_path=parsed_args.fsl_container,
-                download_policy=parsed_args.container_download,
-            ),
-            visualization=VisualizationConfig(generate_carpetplots=not parsed_args.no_carpetplots),
-            analysis=AnalysisConfig(
-                detect_outliers=not parsed_args.disable_outliers,
-                generate_exclusions=parsed_args.generate_review_recommendations,
-                exclusion_stringency=parsed_args.exclusion_stringency,
-            ),
-            reporting=ReportingConfig(),
-            manifest=manifest,
-        )
+        config = QAConfig()
+        if manifest and manifest.snapshot:
+            config.snapshot = _snapshot_config_from_manifest(manifest.snapshot)
 
-    if parsed_args.derivatives_dir:
+    if manifest is not None:
+        config.manifest = manifest
+
+    if parsed_args.derivatives_dir is not None:
         config.derivatives_dir = parsed_args.derivatives_dir
-    if parsed_args.bids_root:
+    if parsed_args.bids_root is not None:
         config.bids_root = parsed_args.bids_root
-    if parsed_args.manifest:
+    if parsed_args.manifest is not None:
         config.manifest_path = parsed_args.manifest
         config.data_source = "manifest"
         config.manifest = manifest
-    if parsed_args.glob_pattern:
+    elif parsed_args.data_source is not None:
+        config.data_source = parsed_args.data_source
+    if parsed_args.glob_pattern is not None:
         config.glob_pattern = parsed_args.glob_pattern
-    if parsed_args.output_dir_name != "QA":
+    if parsed_args.output_dir_name is not None:
         config.output_dir_name = parsed_args.output_dir_name
-    if parsed_args.generate_motion:
-        config.generate_motion = True
-    if parsed_args.motion_strategy:
-        config.motion.strategy = parsed_args.motion_strategy
-    if parsed_args.fsl_container:
-        config.fsl_container_path = parsed_args.fsl_container
+
+    if parsed_args.reuse_from is not None:
+        config.reuse_run_dir = parsed_args.reuse_from
+
+    if parsed_args.snapshot_id is not None:
+        config.snapshot.id = parsed_args.snapshot_id
+    if parsed_args.snapshot_label is not None:
+        config.snapshot.label = parsed_args.snapshot_label
+    if parsed_args.snapshot_source_type is not None:
+        config.snapshot.source_type = parsed_args.snapshot_source_type
+
+    if parsed_args.n_jobs is not None:
+        config.n_jobs = parsed_args.n_jobs
+    if parsed_args.target_echo is not None:
+        config.target_echo = parsed_args.target_echo
     if parsed_args.no_cache:
         config.use_cache = False
     if parsed_args.force_reprocess:
         config.force_reprocess = True
     if parsed_args.dry_run:
         config.dry_run = True
+
+    if parsed_args.generate_motion:
+        config.generate_motion = True
+    if parsed_args.motion_strategy is not None:
+        config.motion.strategy = parsed_args.motion_strategy
+    if parsed_args.fsl_container is not None:
+        config.fsl_container_path = parsed_args.fsl_container
+    if parsed_args.container_download is not None:
+        config.motion.download_policy = parsed_args.container_download
+    if parsed_args.no_carpetplots:
+        config.generate_carpetplots = False
+
+    if parsed_args.threshold_profile is not None:
+        config.thresholds.profile = parsed_args.threshold_profile
+    if parsed_args.dvars_z_threshold is not None:
+        config.dvars_z_threshold = parsed_args.dvars_z_threshold
+    if parsed_args.fd_threshold is not None:
+        config.fd_threshold = parsed_args.fd_threshold
+    if parsed_args.fd_median_threshold is not None:
+        config.fd_median_threshold = parsed_args.fd_median_threshold
+    if parsed_args.outlier_threshold is not None:
+        config.outlier_threshold = parsed_args.outlier_threshold
+    if parsed_args.outlier_metric_threshold is not None:
+        config.outlier_metric_threshold = parsed_args.outlier_metric_threshold
+
+    if parsed_args.disable_outliers:
+        config.analysis.detect_outliers = False
+    if parsed_args.generate_review_recommendations:
+        config.analysis.generate_exclusions = True
+    if parsed_args.exclusion_stringency is not None:
+        config.exclusion_stringency = parsed_args.exclusion_stringency
 
     return config
 

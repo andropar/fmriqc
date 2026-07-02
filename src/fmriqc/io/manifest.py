@@ -425,6 +425,12 @@ class QAManifest:
                         confounds=run.confounds,
                         subject=subject.id,
                         session=session.id,
+                        task=run.task,
+                        run=run.run,
+                        echo=run.echo,
+                        acquisition=run.acquisition,
+                        part=run.part,
+                        motion_format=run.motion_format,
                         label=run.label,
                     )
                     input_runs.append(self._run_to_input_run(legacy, resolved_snapshot))

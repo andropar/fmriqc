@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fmriqc.io.bids import run_key_from_path
+from fmriqc.io.bids import parse_bids_entities, run_key_from_path
 from fmriqc.io.io import (
     create_run_info,
     find_mask_path,
@@ -16,22 +16,37 @@ from fmriqc.orchestration.config import QAConfig
 
 
 def _find_confounds(path: Path) -> Path | None:
-    """Find a nearby fMRIPrep confounds TSV using BIDS entities when possible."""
+    """Find a nearby fMRIPrep confounds TSV with matching BIDS entities."""
     candidates = sorted(path.parent.glob("*desc-confounds_timeseries.tsv"))
     if not candidates:
         candidates = sorted(path.parent.glob("*confounds*.tsv"))
     if not candidates:
         return None
 
-    stem_tokens = set(path.name.split("_"))
-    best = None
-    best_score = -1
+    target_entities = parse_bids_entities(path)
+    space_is_specific = target_entities.get("space") is not None and any(
+        parse_bids_entities(candidate).get("space") is not None
+        for candidate in candidates
+    )
+    required_entities = ["sub", "ses", "task", "run", "acq", "echo"]
+    if space_is_specific:
+        required_entities.append("space")
+
+    matches = []
     for candidate in candidates:
-        score = len(stem_tokens.intersection(candidate.name.split("_")))
-        if score > best_score:
-            best = candidate
-            best_score = score
-    return best
+        candidate_entities = parse_bids_entities(candidate)
+        if all(
+            candidate_entities.get(entity) == target_entities.get(entity)
+            for entity in required_entities
+            if target_entities.get(entity) is not None
+        ) and all(
+            target_entities.get(entity) == candidate_entities.get(entity)
+            for entity in required_entities
+            if candidate_entities.get(entity) is not None
+        ):
+            matches.append(candidate)
+
+    return matches[0] if matches else None
 
 
 def discover_input_runs(config: QAConfig) -> tuple[list[InputRun], Path]:
@@ -52,7 +67,10 @@ def discover_input_runs(config: QAConfig) -> tuple[list[InputRun], Path]:
                 print(f"  ... and {len(errors) - 10} more")
             raise SystemExit("Manifest validation failed")
 
-        input_runs = manifest.to_input_runs(snapshot)
+        if manifest.snapshot is not None and config.snapshot == type(config.snapshot)():
+            input_runs = manifest.to_input_runs()
+        else:
+            input_runs = manifest.to_input_runs(snapshot)
         if config.derivatives_dir:
             base_output = config.derivatives_dir
         elif manifest.base_path:

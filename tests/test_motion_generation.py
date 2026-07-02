@@ -63,6 +63,17 @@ class TestCheckContainerRuntime:
             runtime = check_container_runtime()
             assert runtime == "singularity"
 
+    def test_detects_apptainer_when_docker_and_singularity_unavailable(self):
+        """Test Apptainer detection when Docker and Singularity are not available."""
+        def mock_which_func(cmd):
+            if cmd == "apptainer":
+                return "/usr/bin/apptainer"
+            return None
+
+        with patch('shutil.which', side_effect=mock_which_func):
+            runtime = check_container_runtime()
+            assert runtime == "apptainer"
+
     def test_docker_daemon_not_running(self):
         """Test fallback to Singularity when Docker daemon not running."""
         def mock_which_func(cmd):
@@ -140,6 +151,18 @@ class TestGetContainerPath:
 
             assert "download declined" in str(exc_info.value).lower()
 
+    def test_download_policy_never_fails_without_prompt(self, tmp_path, monkeypatch):
+        """Test noninteractive failure when download is disabled."""
+        fake_default = tmp_path / "containers"
+        monkeypatch.setattr("fmriqc.motion_generation.DEFAULT_CONTAINER_DIR", fake_default)
+
+        with patch('builtins.input') as mock_input:
+            with pytest.raises(MotionGenerationError) as exc_info:
+                get_container_path(download_policy="never")
+
+        assert "container is missing" in str(exc_info.value).lower()
+        mock_input.assert_not_called()
+
     def test_download_success(self, tmp_path, monkeypatch):
         """Test successful container download."""
         fake_default = tmp_path / "containers"
@@ -158,7 +181,7 @@ class TestGetContainerPath:
 
                 mock_download.side_effect = create_file
 
-                result = get_container_path()
+                result = get_container_path(download_policy="auto")
 
                 assert result == expected_path
                 assert result.exists()

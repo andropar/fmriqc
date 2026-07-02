@@ -43,7 +43,7 @@ def run_assess(config: QAConfig) -> int:
 
     This is the main entry point that orchestrates the entire QA process:
     1. Discover runs to process (from BIDS or manifest)
-    2. Setup cache for incremental processing
+    2. Setup output-local cache metadata
     3. Process all runs (compute metrics, generate visualizations)
     4. Organize results into study structure
     5. Compute aggregate maps and statistics

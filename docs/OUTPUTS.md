@@ -8,6 +8,7 @@ QA_preproc/20260505_151200_snapshot-preproc/
   snapshot.json
   qa_config.yaml
   qa_config_resolved.yaml
+  qa_cache.json
   study_summary.json
   metrics/run_metrics.tsv
   metrics/run_flags.tsv
@@ -26,6 +27,8 @@ QA_preproc/20260505_151200_snapshot-preproc/
 - `snapshot.json`: snapshot id, label, source type, and pipeline metadata.
 - `qa_config.yaml`: input configuration.
 - `qa_config_resolved.yaml`: resolved thresholds used for flags.
+- `qa_cache.json`: output-local cache metadata used for report regeneration and
+  explicit reuse loading.
 - `metrics/run_metrics.tsv`: run-level metrics.
 - `metrics/run_flags.tsv`: threshold-based run flags.
 - `provenance/run_provenance.tsv`: BOLD, mask, and motion provenance.
@@ -33,6 +36,23 @@ QA_preproc/20260505_151200_snapshot-preproc/
 - `result.json`: per-run metadata and flags.
 - `arrays.npz`: per-run arrays for maps and series.
 - `series.json`: web-friendly FD, DVARS, global signal, and related series.
+
+## HTML Report Views
+
+`index.html` is the entry point for the snapshot. It summarizes the run table,
+quality overview, and metric distributions:
+
+![Study dashboard](assets/screenshots/fmriqc-study-dashboard.jpg)
+
+Subject-level reports live under each subject directory. They add a compact run
+timeline with thumbnails, metric traces, and review controls:
+
+![Subject report](assets/screenshots/fmriqc-subject-report.jpg)
+
+Run labels open an in-page detail modal with metric cards, flags, provenance,
+warnings, and visual assets for that run:
+
+![Run review modal](assets/screenshots/fmriqc-run-review-modal.jpg)
 
 ## Review Data
 
